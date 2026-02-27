@@ -1,0 +1,9 @@
+node_modules/
+build/
+prebuilds/
+.DS_Store
+*.node
+*.raw
+*.ppm
+
+.idea

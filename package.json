@@ -1,0 +1,53 @@
+{
+  "name": "node-stable-diffusion-cpp",
+  "version": "0.1.0",
+  "description": "Node.js N-API bindings for stable-diffusion.cpp — run Stable Diffusion, SDXL, SD3, FLUX, and Wan video models natively",
+  "main": "src/js/index.js",
+  "types": "src/js/index.d.ts",
+  "scripts": {
+    "install": "cmake-js compile",
+    "build": "cmake-js compile --release",
+    "build:debug": "cmake-js compile --debug",
+    "rebuild": "cmake-js rebuild --release",
+    "clean": "cmake-js clean",
+    "test": "node test/basic.js",
+    "smoke": "node smoke.js"
+  },
+  "keywords": [
+    "stable-diffusion",
+    "sdxl",
+    "sd3",
+    "flux",
+    "wan",
+    "image-generation",
+    "video-generation",
+    "diffusion",
+    "ai",
+    "machine-learning",
+    "ggml",
+    "gguf",
+    "native",
+    "napi",
+    "electron"
+  ],
+  "author": "",
+  "files": [
+    "src/",
+    "deps/",
+    "CMakeLists.txt",
+    "LICENSE",
+    "README.md"
+  ],
+  "dependencies": {
+    "cmake-js": "^8.0.0",
+    "node-addon-api": "^8.3.1",
+    "node-gyp-build": "^4.8.4"
+  },
+  "cmake-js": {
+    "cmakeOptions": []
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}

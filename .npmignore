@@ -1,0 +1,7 @@
+build/
+test/
+smoke.js
+docs/
+.github/
+.DS_Store
+*.raw

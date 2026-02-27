@@ -1,0 +1,1 @@
+/Users/igorberezin/AI/engines/stable-diffusion.cpp
