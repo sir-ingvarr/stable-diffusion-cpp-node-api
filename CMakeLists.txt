@@ -35,6 +35,13 @@ add_subdirectory(deps/stable-diffusion.cpp)
 # --- Node.js / N-API ---
 include_directories(${CMAKE_JS_INC})
 
+# On Windows, generate node.lib from the .def file provided by cmake-js
+if(MSVC AND CMAKE_JS_NODELIB_DEF AND CMAKE_JS_NODELIB_TARGET)
+    execute_process(COMMAND ${CMAKE_AR} /def:${CMAKE_JS_NODELIB_DEF}
+                    /out:${CMAKE_JS_NODELIB_TARGET}
+                    ${CMAKE_STATIC_LINKER_FLAGS})
+endif()
+
 execute_process(
     COMMAND node -p "require('node-addon-api').include_dir"
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
