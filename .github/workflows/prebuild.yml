@@ -1,0 +1,95 @@
+name: Prebuild & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: darwin
+            arch: arm64
+          - os: macos-13
+            platform: darwin
+            arch: x64
+          - os: ubuntu-22.04
+            platform: linux
+            arch: x64
+          - os: windows-latest
+            platform: win32
+            arch: x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install dependencies (skip native build)
+        run: npm install --ignore-scripts
+
+      - name: Build native module
+        run: npx cmake-js compile --release
+
+      - name: Package prebuild
+        shell: bash
+        run: |
+          PACKAGE_NAME=$(node -p "require('./package.json').name")
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          NODE_FILE=$(find build -name "node_stable_diffusion.node" -type f | head -1)
+          if [ -z "$NODE_FILE" ]; then
+            echo "::error::Could not find node_stable_diffusion.node"
+            exit 1
+          fi
+          mkdir -p staging/build/Release
+          cp "$NODE_FILE" staging/build/Release/node_stable_diffusion.node
+          TARBALL="${PACKAGE_NAME}-v${PACKAGE_VERSION}-napi-v8-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz"
+          tar -czf "${TARBALL}" -C staging build/Release/node_stable_diffusion.node
+          echo "TARBALL=${TARBALL}" >> "$GITHUB_ENV"
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.TARBALL }}
+          draft: false
+
+  smoke-test:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+          - os: macos-13
+          - os: ubuntu-22.04
+          - os: windows-latest
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install with prebuild (should download, not compile)
+        run: npm install
+
+      - name: Verify native module loads
+        run: npm test
