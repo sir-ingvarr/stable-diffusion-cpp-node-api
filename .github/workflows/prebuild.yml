@@ -88,8 +88,11 @@ jobs:
         with:
           node-version: 18
 
-      - name: Install with prebuild (should download, not compile)
-        run: npm install
+      - name: Install dependencies (skip native build)
+        run: npm install --ignore-scripts
+
+      - name: Download prebuild (should not compile)
+        run: npx prebuild-install -r napi -v -T ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify native module loads
         run: npm test
