@@ -5,12 +5,14 @@ let binding;
 function loadBinding() {
     if (binding) return binding;
 
+    const errors = [];
+
     // Try node-gyp-build (prebuilds)
     try {
         binding = require('node-gyp-build')(path.resolve(__dirname, '..', '..'));
         return binding;
     } catch (e) {
-        // Fall through
+        errors.push('node-gyp-build: ' + e.message);
     }
 
     // Try cmake-js build output
@@ -25,13 +27,14 @@ function loadBinding() {
             binding = require(p);
             return binding;
         } catch (e) {
-            // Fall through
+            errors.push(path.basename(path.dirname(p)) + ': ' + e.message);
         }
     }
 
     throw new Error(
         'Could not load node-stable-diffusion-cpp native module. ' +
-        'Run `npm run build` to compile from source.'
+        'Run `npm run build` to compile from source.\n' +
+        'Attempted:\n  ' + errors.join('\n  ')
     );
 }
 
