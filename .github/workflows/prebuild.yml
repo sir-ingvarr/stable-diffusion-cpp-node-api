@@ -92,7 +92,7 @@ jobs:
         run: npm install --ignore-scripts
 
       - name: Download prebuild (should not compile)
-        run: npx prebuild-install -r napi -v -T ${{ secrets.GITHUB_TOKEN }}
+        run: npx prebuild-install -r napi --verbose -T ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify native module loads
         run: npm test
