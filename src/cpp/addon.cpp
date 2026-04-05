@@ -1,6 +1,7 @@
 #include <napi.h>
 #include <stable-diffusion.h>
 
+#include "abort_helper.h"
 #include "callbacks/log_callback.h"
 #include "callbacks/preview_callback.h"
 #include "callbacks/progress_callback.h"
@@ -96,9 +97,15 @@ static Napi::Value PreprocessCanny(const Napi::CallbackInfo& info) {
     return Napi::Boolean::New(env, result);
 }
 
+static Napi::Value Abort(const Napi::CallbackInfo& info) {
+    AbortHelper::requestAbort();
+    return info.Env().Undefined();
+}
+
 // --- Module init ---
 
 static Napi::Object Init(Napi::Env env, Napi::Object exports) {
+    ProgressCallback::Init();
     StableDiffusionContext::Init(env, exports);
     UpscalerContext::Init(env, exports);
 
@@ -111,6 +118,7 @@ static Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("setLogCallback", Napi::Function::New(env, LogCallback::Set));
     exports.Set("setProgressCallback", Napi::Function::New(env, ProgressCallback::Set));
     exports.Set("setPreviewCallback", Napi::Function::New(env, PreviewCallback::Set));
+    exports.Set("abort", Napi::Function::New(env, Abort));
 
     return exports;
 }

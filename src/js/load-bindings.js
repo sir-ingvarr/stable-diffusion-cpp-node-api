@@ -1,40 +1,39 @@
 const path = require('path');
 
+const PLATFORMS = {
+    'darwin-arm64': '@stable-diffusion-cpp-node-api/darwin-arm64',
+    'darwin-x64':   '@stable-diffusion-cpp-node-api/darwin-x64',
+    'linux-x64':    '@stable-diffusion-cpp-node-api/linux-x64',
+    'win32-x64':    '@stable-diffusion-cpp-node-api/win32-x64',
+};
+
 let binding;
 
 function loadBinding() {
     if (binding) return binding;
 
-    const errors = [];
+    const key = `${process.platform}-${process.arch}`;
+    const pkg = PLATFORMS[key];
 
-    // Try node-gyp-build (prebuilds)
-    try {
-        binding = require('node-gyp-build')(path.resolve(__dirname, '..', '..'));
-        return binding;
-    } catch (e) {
-        errors.push('node-gyp-build: ' + e.message);
-    }
-
-    // Try cmake-js build output
-    const buildPaths = [
-        path.resolve(__dirname, '..', '..', 'build', 'Release', 'node_stable_diffusion.node'),
-        path.resolve(__dirname, '..', '..', 'build', 'Debug', 'node_stable_diffusion.node'),
-        path.resolve(__dirname, '..', '..', 'build', 'node_stable_diffusion.node'),
-    ];
-
-    for (const p of buildPaths) {
+    // 1. Try platform-specific npm package
+    if (pkg) {
         try {
-            binding = require(p);
+            binding = require(pkg);
             return binding;
-        } catch (e) {
-            errors.push(path.basename(path.dirname(p)) + ': ' + e.message);
-        }
+        } catch (_) {}
     }
+
+    // 2. Fallback to local build (development / unsupported platform)
+    try {
+        binding = require(path.resolve(__dirname, '..', '..', 'build', 'Release', 'node_stable_diffusion.node'));
+        return binding;
+    } catch (_) {}
 
     throw new Error(
-        'Could not load node-stable-diffusion-cpp native module. ' +
-        'Run `npm run build` to compile from source.\n' +
-        'Attempted:\n  ' + errors.join('\n  ')
+        `stable-diffusion-cpp-node-api: no prebuilt binary for ${key}.\n` +
+        'Supported platforms: ' + Object.keys(PLATFORMS).join(', ') + '.\n' +
+        'To build from source, install from git instead:\n' +
+        '  npm install git+https://github.com/sir-ingvarr/node-stable-diffusion-cpp.git'
     );
 }
 

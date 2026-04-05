@@ -1,5 +1,5 @@
 {
-  "name": "node-stable-diffusion-cpp",
+  "name": "stable-diffusion-cpp-node-api",
   "version": "0.9.0",
   "description": "Node.js N-API bindings for stable-diffusion.cpp — run Stable Diffusion, SDXL, SD3, FLUX, and Wan video models natively",
   "main": "src/js/index.js",
@@ -8,17 +8,15 @@
     "type": "git",
     "url": "git+https://github.com/sir-ingvarr/node-stable-diffusion-cpp.git"
   },
+  "license": "MIT",
   "scripts": {
-    "install": "prebuild-install -r napi || cmake-js compile",
+    "preinstall": "test -d .git && git submodule update --init --recursive || true",
     "build": "cmake-js compile --release",
     "build:debug": "cmake-js compile --debug",
     "rebuild": "cmake-js rebuild --release",
     "clean": "cmake-js clean",
     "test": "node test/basic.js",
     "smoke": "node smoke.js"
-  },
-  "binary": {
-    "napi_versions": [8]
   },
   "keywords": [
     "stable-diffusion",
@@ -37,25 +35,22 @@
     "napi",
     "electron"
   ],
-  "author": "",
   "files": [
-    "src/",
-    "deps/",
-    "CMakeLists.txt",
+    "src/js/",
     "LICENSE",
     "README.md"
   ],
-  "dependencies": {
-    "cmake-js": "^8.0.0",
-    "node-addon-api": "^8.3.1",
-    "node-gyp-build": "^4.8.4",
-    "prebuild-install": "^7.1.3"
-  },
-  "cmake-js": {
-    "cmakeOptions": []
-  },
   "engines": {
     "node": ">=18.0.0"
   },
-  "license": "MIT"
+  "devDependencies": {
+    "cmake-js": "^8.0.0",
+    "node-addon-api": "^8.3.1"
+  },
+  "optionalDependencies": {
+    "@stable-diffusion-cpp-node-api/darwin-arm64": "0.9.0",
+    "@stable-diffusion-cpp-node-api/darwin-x64": "0.9.0",
+    "@stable-diffusion-cpp-node-api/linux-x64": "0.9.0",
+    "@stable-diffusion-cpp-node-api/win32-x64": "0.9.0"
+  }
 }

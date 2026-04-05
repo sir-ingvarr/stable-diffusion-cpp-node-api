@@ -7,3 +7,4 @@ prebuilds/
 *.ppm
 
 .idea
+.cache

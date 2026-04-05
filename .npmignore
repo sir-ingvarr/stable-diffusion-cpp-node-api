@@ -1,7 +1,13 @@
 build/
+npm/
+src/cpp/
+deps/
 test/
 smoke.js
 docs/
 .github/
 .DS_Store
 *.raw
+*.node
+CMakeLists.txt
+CLAUDE.md

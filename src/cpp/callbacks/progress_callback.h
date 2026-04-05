@@ -3,6 +3,8 @@
 #include <napi.h>
 #include <stable-diffusion.h>
 
+#include "../abort_helper.h"
+
 namespace ProgressCallback {
 
 inline Napi::ThreadSafeFunction tsfn;
@@ -14,6 +16,10 @@ struct ProgressData {
 };
 
 inline void CCallback(int step, int steps, float time, void* /*data*/) {
+    // Check abort before doing any work. If abort was requested and a
+    // jmp_buf is active on this thread, longjmp back to the worker's Execute().
+    AbortHelper::checkAbort();
+
     if (!tsfn) return;
 
     auto* pd = new ProgressData{step, steps, time};
@@ -28,13 +34,20 @@ inline void CCallback(int step, int steps, float time, void* /*data*/) {
     });
 }
 
+// Register our CCallback once at module init. This ensures the abort
+// check is always active, even when no JS progress callback is set.
+inline void Init() {
+    sd_set_progress_callback(ProgressCallback::CCallback, nullptr);
+}
+
 inline Napi::Value Set(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
     if (tsfn) {
         tsfn.Release();
         tsfn = Napi::ThreadSafeFunction();
-        sd_set_progress_callback(nullptr, nullptr);
+        // Don't clear the C callback — CCallback must stay registered
+        // for the abort mechanism. It handles tsfn being null gracefully.
     }
 
     if (info.Length() < 1 || info[0].IsNull() || info[0].IsUndefined()) {
@@ -52,7 +65,6 @@ inline Napi::Value Set(const Napi::CallbackInfo& info) {
         "sd_progress_callback",
         0, 1);
 
-    sd_set_progress_callback(ProgressCallback::CCallback, nullptr);
     return env.Undefined();
 }
 

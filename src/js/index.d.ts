@@ -156,9 +156,15 @@ export interface PhotoMakerParams {
     styleStrength?: number;
 }
 
+// --- Abort support ---
+
+export interface AbortableOptions {
+    signal?: AbortSignal;
+}
+
 // --- Context creation options ---
 
-export interface ContextOptions {
+export interface ContextOptions extends AbortableOptions {
     modelPath?: string;
     clipLPath?: string;
     clipGPath?: string;
@@ -203,7 +209,7 @@ export interface ContextOptions {
 
 // --- Generation options ---
 
-export interface ImageGenerationOptions {
+export interface ImageGenerationOptions extends AbortableOptions {
     prompt?: string;
     negativePrompt?: string;
     clipSkip?: number;
@@ -226,7 +232,7 @@ export interface ImageGenerationOptions {
     loras?: LoraDefinition[];
 }
 
-export interface VideoGenerationOptions {
+export interface VideoGenerationOptions extends AbortableOptions {
     prompt?: string;
     negativePrompt?: string;
     clipSkip?: number;
@@ -247,7 +253,7 @@ export interface VideoGenerationOptions {
     loras?: LoraDefinition[];
 }
 
-export interface UpscalerOptions {
+export interface UpscalerOptions extends AbortableOptions {
     esrganPath: string;
     offloadParamsToCpu?: boolean;
     direct?: boolean;
@@ -255,7 +261,9 @@ export interface UpscalerOptions {
     tileSize?: number;
 }
 
-export interface ConvertOptions {
+export interface UpscaleOptions extends AbortableOptions {}
+
+export interface ConvertOptions extends AbortableOptions {
     inputPath: string;
     outputPath: string;
     vaePath?: string;
@@ -314,7 +322,7 @@ export class StableDiffusionContext {
 export class UpscalerContext {
     private constructor();
     static create(options: UpscalerOptions): Promise<UpscalerContext>;
-    upscale(image: SdImage, upscaleFactor?: number): Promise<SdImage>;
+    upscale(image: SdImage, upscaleFactor?: number, options?: UpscaleOptions): Promise<SdImage>;
     getUpscaleFactor(): number;
     close(): void;
     readonly isClosed: boolean;
@@ -322,6 +330,7 @@ export class UpscalerContext {
 
 // --- Free functions ---
 
+export function abort(): void;
 export function convert(options: ConvertOptions): Promise<boolean>;
 export function preprocessCanny(image: SdImage, options?: CannyOptions): boolean;
 export function setLogCallback(callback: ((data: LogCallbackData) => void) | null): void;

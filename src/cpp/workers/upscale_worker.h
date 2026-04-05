@@ -3,6 +3,7 @@
 #include <napi.h>
 #include <stable-diffusion.h>
 
+#include "../abort_helper.h"
 #include "helpers/image_helpers.h"
 #include "helpers/params_converter.h"
 
@@ -24,7 +25,20 @@ class CreateUpscalerWorker : public Napi::AsyncWorker {
     Napi::Promise::Deferred& Deferred() { return deferred_; }
 
     void Execute() override {
+        AbortHelper::clearAbort();
+
+        if (setjmp(AbortHelper::jmp_buf_storage) != 0) {
+            AbortHelper::jmp_active = false;
+            AbortHelper::clearAbort();
+            ctx_ = nullptr;
+            SetError("Aborted");
+            return;
+        }
+        AbortHelper::jmp_active = true;
+
         ctx_ = new_upscaler_ctx(esrgan_path_.c_str(), offload_, direct_, n_threads_, tile_size_);
+        AbortHelper::jmp_active = false;
+
         if (!ctx_) {
             SetError("Failed to create upscaler context");
         }
@@ -68,7 +82,20 @@ class UpscaleWorker : public Napi::AsyncWorker {
     Napi::Promise::Deferred& Deferred() { return deferred_; }
 
     void Execute() override {
+        AbortHelper::clearAbort();
+
+        if (setjmp(AbortHelper::jmp_buf_storage) != 0) {
+            AbortHelper::jmp_active = false;
+            AbortHelper::clearAbort();
+            result_ = {};
+            SetError("Aborted");
+            return;
+        }
+        AbortHelper::jmp_active = true;
+
         result_ = upscale(ctx_, input_, factor_);
+        AbortHelper::jmp_active = false;
+
         if (!result_.data) {
             SetError("Upscaling failed");
         }

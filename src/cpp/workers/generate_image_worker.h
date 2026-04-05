@@ -3,6 +3,7 @@
 #include <napi.h>
 #include <stable-diffusion.h>
 
+#include "../abort_helper.h"
 #include "helpers/image_helpers.h"
 #include "helpers/params_converter.h"
 
@@ -20,7 +21,20 @@ class GenerateImageWorker : public Napi::AsyncWorker {
     Napi::Promise::Deferred& Deferred() { return deferred_; }
 
     void Execute() override {
+        AbortHelper::clearAbort();
+
+        if (setjmp(AbortHelper::jmp_buf_storage) != 0) {
+            // Landed here via longjmp from the progress callback — aborted.
+            AbortHelper::jmp_active = false;
+            AbortHelper::clearAbort();
+            SetError("Aborted");
+            return;
+        }
+        AbortHelper::jmp_active = true;
+
         result_images_ = generate_image(ctx_, &params_);
+        AbortHelper::jmp_active = false;
+
         if (!result_images_) {
             SetError("Image generation failed");
         }

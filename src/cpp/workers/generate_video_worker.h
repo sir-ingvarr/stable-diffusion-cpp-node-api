@@ -3,6 +3,7 @@
 #include <napi.h>
 #include <stable-diffusion.h>
 
+#include "../abort_helper.h"
 #include "helpers/image_helpers.h"
 #include "helpers/params_converter.h"
 
@@ -20,7 +21,19 @@ class GenerateVideoWorker : public Napi::AsyncWorker {
     Napi::Promise::Deferred& Deferred() { return deferred_; }
 
     void Execute() override {
+        AbortHelper::clearAbort();
+
+        if (setjmp(AbortHelper::jmp_buf_storage) != 0) {
+            AbortHelper::jmp_active = false;
+            AbortHelper::clearAbort();
+            SetError("Aborted");
+            return;
+        }
+        AbortHelper::jmp_active = true;
+
         result_frames_ = generate_video(ctx_, &params_, &num_frames_);
+        AbortHelper::jmp_active = false;
+
         if (!result_frames_) {
             SetError("Video generation failed");
         }

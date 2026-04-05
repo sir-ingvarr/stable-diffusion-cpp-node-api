@@ -2,6 +2,25 @@ const loadBinding = require('./load-bindings');
 
 const native = loadBinding();
 
+function withAbortSignal(promise, signal) {
+    if (!signal) return promise;
+    if (signal.aborted) {
+        native.abort();
+        return Promise.reject(signal.reason ?? new DOMException('The operation was aborted.', 'AbortError'));
+    }
+    return new Promise((resolve, reject) => {
+        const onAbort = () => {
+            native.abort();
+            reject(signal.reason ?? new DOMException('The operation was aborted.', 'AbortError'));
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+        promise.then(
+            (v) => { signal.removeEventListener('abort', onAbort); resolve(v); },
+            (e) => { signal.removeEventListener('abort', onAbort); reject(e); },
+        );
+    });
+}
+
 class StableDiffusionContext {
     #native;
 
@@ -17,7 +36,8 @@ class StableDiffusionContext {
      * @returns {Promise<StableDiffusionContext>}
      */
     static async create(options) {
-        const ctx = await native.StableDiffusionContext.create(options);
+        const { signal, ...opts } = options || {};
+        const ctx = await withAbortSignal(native.StableDiffusionContext.create(opts), signal);
         return new StableDiffusionContext(ctx);
     }
 
@@ -27,7 +47,8 @@ class StableDiffusionContext {
      * @returns {Promise<Array<{width: number, height: number, channel: number, data: Buffer}>>}
      */
     async generateImage(options) {
-        return this.#native.generateImage(options);
+        const { signal, ...opts } = options || {};
+        return withAbortSignal(this.#native.generateImage(opts), signal);
     }
 
     /**
@@ -36,7 +57,8 @@ class StableDiffusionContext {
      * @returns {Promise<Array<{width: number, height: number, channel: number, data: Buffer}>>}
      */
     async generateVideo(options) {
-        return this.#native.generateVideo(options);
+        const { signal, ...opts } = options || {};
+        return withAbortSignal(this.#native.generateVideo(opts), signal);
     }
 
     /**
@@ -86,7 +108,8 @@ class UpscalerContext {
      * @returns {Promise<UpscalerContext>}
      */
     static async create(options) {
-        const ctx = await native.UpscalerContext.create(options);
+        const { signal, ...opts } = options || {};
+        const ctx = await withAbortSignal(native.UpscalerContext.create(opts), signal);
         return new UpscalerContext(ctx);
     }
 
@@ -94,10 +117,12 @@ class UpscalerContext {
      * Upscale an image.
      * @param {{width: number, height: number, channel: number, data: Buffer}} image
      * @param {number} [upscaleFactor=4]
+     * @param {{ signal?: AbortSignal }} [options]
      * @returns {Promise<{width: number, height: number, channel: number, data: Buffer}>}
      */
-    async upscale(image, upscaleFactor = 4) {
-        return this.#native.upscale(image, upscaleFactor);
+    async upscale(image, upscaleFactor = 4, options) {
+        const { signal } = options || {};
+        return withAbortSignal(this.#native.upscale(image, upscaleFactor), signal);
     }
 
     /**
@@ -129,11 +154,15 @@ module.exports = {
     UpscalerContext,
 
     // Free functions
-    convert: native.convert,
+    convert(options) {
+        const { signal, ...opts } = options || {};
+        return withAbortSignal(native.convert(opts), signal);
+    },
     preprocessCanny: native.preprocessCanny,
     setLogCallback: native.setLogCallback,
     setProgressCallback: native.setProgressCallback,
     setPreviewCallback: native.setPreviewCallback,
+    abort: native.abort,
     getSystemInfo: native.getSystemInfo,
     getNumPhysicalCores: native.getNumPhysicalCores,
     version: native.version,
