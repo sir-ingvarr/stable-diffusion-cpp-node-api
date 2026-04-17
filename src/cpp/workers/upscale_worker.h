@@ -3,7 +3,10 @@
 #include <napi.h>
 #include <stable-diffusion.h>
 
+#include <utility>
+
 #include "../abort_helper.h"
+#include "../upscaler_context.h"
 #include "helpers/image_helpers.h"
 #include "helpers/params_converter.h"
 
@@ -25,20 +28,7 @@ class CreateUpscalerWorker : public Napi::AsyncWorker {
     Napi::Promise::Deferred& Deferred() { return deferred_; }
 
     void Execute() override {
-        AbortHelper::clearAbort();
-
-        if (setjmp(AbortHelper::jmp_buf_storage) != 0) {
-            AbortHelper::jmp_active = false;
-            AbortHelper::clearAbort();
-            ctx_ = nullptr;
-            SetError("Aborted");
-            return;
-        }
-        AbortHelper::jmp_active = true;
-
         ctx_ = new_upscaler_ctx(esrgan_path_.c_str(), offload_, direct_, n_threads_, tile_size_);
-        AbortHelper::jmp_active = false;
-
         if (!ctx_) {
             SetError("Failed to create upscaler context");
         }
@@ -69,11 +59,11 @@ class CreateUpscalerWorker : public Napi::AsyncWorker {
 
 class UpscaleWorker : public Napi::AsyncWorker {
   public:
-    UpscaleWorker(Napi::Env env, upscaler_ctx_t* ctx, const Napi::Object& imgObj,
-                  uint32_t factor, ArrayStore& as)
+    UpscaleWorker(Napi::Env env, UpscalerCtxPtr ctx, const Napi::Object& imgObj,
+                  uint32_t factor, ArrayStore& /*as*/)
         : Napi::AsyncWorker(env),
           deferred_(Napi::Promise::Deferred::New(env)),
-          ctx_(ctx),
+          ctx_(std::move(ctx)),
           factor_(factor) {
         input_ = ImageHelpers::ExtractImage(imgObj, as_);
         result_ = {};
@@ -82,22 +72,21 @@ class UpscaleWorker : public Napi::AsyncWorker {
     Napi::Promise::Deferred& Deferred() { return deferred_; }
 
     void Execute() override {
-        AbortHelper::clearAbort();
-
-        if (setjmp(AbortHelper::jmp_buf_storage) != 0) {
-            AbortHelper::jmp_active = false;
-            AbortHelper::clearAbort();
+        try {
+            AbortHelper::Scope abort_scope;
+            result_ = upscale(ctx_.get(), input_, factor_);
+            if (!result_.data) {
+                SetError("Upscaling failed");
+            }
+        } catch (const AbortHelper::AbortException&) {
             result_ = {};
             SetError("Aborted");
-            return;
-        }
-        AbortHelper::jmp_active = true;
-
-        result_ = upscale(ctx_, input_, factor_);
-        AbortHelper::jmp_active = false;
-
-        if (!result_.data) {
-            SetError("Upscaling failed");
+        } catch (const std::exception& e) {
+            result_ = {};
+            SetError(e.what());
+        } catch (...) {
+            result_ = {};
+            SetError("Upscaling failed (unknown exception)");
         }
     }
 
@@ -114,7 +103,7 @@ class UpscaleWorker : public Napi::AsyncWorker {
 
   private:
     Napi::Promise::Deferred deferred_;
-    upscaler_ctx_t* ctx_;
+    UpscalerCtxPtr ctx_;
     sd_image_t input_;
     uint32_t factor_;
     sd_image_t result_;

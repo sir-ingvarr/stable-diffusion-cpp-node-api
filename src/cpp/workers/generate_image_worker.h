@@ -3,16 +3,19 @@
 #include <napi.h>
 #include <stable-diffusion.h>
 
+#include <utility>
+
 #include "../abort_helper.h"
+#include "../sd_context.h"
 #include "helpers/image_helpers.h"
 #include "helpers/params_converter.h"
 
 class GenerateImageWorker : public Napi::AsyncWorker {
   public:
-    GenerateImageWorker(Napi::Env env, sd_ctx_t* ctx, const Napi::Object& opts)
+    GenerateImageWorker(Napi::Env env, SdCtxPtr ctx, const Napi::Object& opts)
         : Napi::AsyncWorker(env),
           deferred_(Napi::Promise::Deferred::New(env)),
-          ctx_(ctx),
+          ctx_(std::move(ctx)),
           result_images_(nullptr) {
         params_ = ParamsConverter::ToImgGenParams(opts, ss_, as_);
         batch_count_ = params_.batch_count;
@@ -21,22 +24,21 @@ class GenerateImageWorker : public Napi::AsyncWorker {
     Napi::Promise::Deferred& Deferred() { return deferred_; }
 
     void Execute() override {
-        AbortHelper::clearAbort();
-
-        if (setjmp(AbortHelper::jmp_buf_storage) != 0) {
-            // Landed here via longjmp from the progress callback — aborted.
-            AbortHelper::jmp_active = false;
-            AbortHelper::clearAbort();
+        try {
+            AbortHelper::Scope abort_scope;
+            result_images_ = generate_image(ctx_.get(), &params_);
+            if (!result_images_) {
+                SetError("Image generation failed");
+            }
+        } catch (const AbortHelper::AbortException&) {
+            result_images_ = nullptr;
             SetError("Aborted");
-            return;
-        }
-        AbortHelper::jmp_active = true;
-
-        result_images_ = generate_image(ctx_, &params_);
-        AbortHelper::jmp_active = false;
-
-        if (!result_images_) {
-            SetError("Image generation failed");
+        } catch (const std::exception& e) {
+            result_images_ = nullptr;
+            SetError(e.what());
+        } catch (...) {
+            result_images_ = nullptr;
+            SetError("Image generation failed (unknown exception)");
         }
     }
 
@@ -70,7 +72,7 @@ class GenerateImageWorker : public Napi::AsyncWorker {
 
   private:
     Napi::Promise::Deferred deferred_;
-    sd_ctx_t* ctx_;
+    SdCtxPtr ctx_;
     sd_img_gen_params_t params_;
     StringStore ss_;
     ArrayStore as_;

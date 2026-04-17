@@ -1,56 +1,57 @@
 {
-  "name": "stable-diffusion-cpp-node-api",
-  "version": "0.9.1",
-  "description": "Node.js N-API bindings for stable-diffusion.cpp — run Stable Diffusion, SDXL, SD3, FLUX, and Wan video models natively",
-  "main": "src/js/index.js",
-  "types": "src/js/index.d.ts",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/sir-ingvarr/node-stable-diffusion-cpp.git"
-  },
-  "license": "MIT",
-  "scripts": {
-    "preinstall": "test -d .git && git submodule update --init --recursive || true",
-    "build": "cmake-js compile --release",
-    "build:debug": "cmake-js compile --debug",
-    "rebuild": "cmake-js rebuild --release",
-    "clean": "cmake-js clean",
-    "test": "node test/basic.js",
-    "smoke": "node smoke.js"
-  },
-  "keywords": [
-    "stable-diffusion",
-    "sdxl",
-    "sd3",
-    "flux",
-    "wan",
-    "image-generation",
-    "video-generation",
-    "diffusion",
-    "ai",
-    "machine-learning",
-    "ggml",
-    "gguf",
-    "native",
-    "napi",
-    "electron"
-  ],
-  "files": [
-    "src/js/",
-    "LICENSE",
-    "README.md"
-  ],
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "devDependencies": {
-    "cmake-js": "^8.0.0",
-    "node-addon-api": "^8.3.1"
-  },
-  "optionalDependencies": {
-    "@stable-diffusion-cpp-node-api/darwin-arm64": "0.9.1",
-    "@stable-diffusion-cpp-node-api/darwin-x64": "0.9.1",
-    "@stable-diffusion-cpp-node-api/linux-x64": "0.9.1",
-    "@stable-diffusion-cpp-node-api/win32-x64": "0.9.1"
-  }
+    "name": "stable-diffusion-cpp-node-api",
+    "version": "0.9.2",
+    "description": "Node.js N-API bindings for stable-diffusion.cpp — run Stable Diffusion, SDXL, SD3, FLUX, and Wan video models natively",
+    "main": "src/js/index.js",
+    "types": "src/js/index.d.ts",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/sir-ingvarr/node-stable-diffusion-cpp.git"
+    },
+    "license": "MIT",
+    "scripts": {
+        "preinstall": "test -d .git && git submodule update --init --recursive || true",
+        "build": "cmake-js compile --release",
+        "build:debug": "cmake-js compile --debug",
+        "rebuild": "cmake-js rebuild --release",
+        "clean": "cmake-js clean",
+        "test": "node test/basic.js",
+        "smoke": "node smoke.js",
+        "sync-versions": "node scripts/sync-versions.js"
+    },
+    "keywords": [
+        "stable-diffusion",
+        "sdxl",
+        "sd3",
+        "flux",
+        "wan",
+        "image-generation",
+        "video-generation",
+        "diffusion",
+        "ai",
+        "machine-learning",
+        "ggml",
+        "gguf",
+        "native",
+        "napi",
+        "electron"
+    ],
+    "files": [
+        "src/js/",
+        "LICENSE",
+        "README.md"
+    ],
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "devDependencies": {
+        "cmake-js": "^8.0.0",
+        "node-addon-api": "^8.3.1"
+    },
+    "optionalDependencies": {
+        "@stable-diffusion-cpp-node-api/darwin-arm64": "0.9.2",
+        "@stable-diffusion-cpp-node-api/darwin-x64": "0.9.2",
+        "@stable-diffusion-cpp-node-api/linux-x64": "0.9.2",
+        "@stable-diffusion-cpp-node-api/win32-x64": "0.9.2"
+    }
 }

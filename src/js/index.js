@@ -2,6 +2,15 @@ const loadBinding = require('./load-bindings');
 
 const native = loadBinding();
 
+// generateImage / generateVideo / upscale: hard cancel at the next
+// sampling-step boundary. native.abort() sets a global flag that the
+// native progress callback checks; when set, it throws a C++
+// exception that unwinds through stable-diffusion.cpp back to the
+// worker. Cancellation takes effect at the next step, not instantly.
+//
+// create() / convert(): abort has no native effect (soft cancel). The
+// outer Promise still rejects immediately, but the underlying load /
+// conversion continues to completion and its result is discarded.
 function withAbortSignal(promise, signal) {
     if (!signal) return promise;
     if (signal.aborted) {
@@ -79,14 +88,15 @@ class StableDiffusionContext {
     }
 
     /**
-     * Free the native context resources.
+     * Release the context. Any in-flight work continues to completion
+     * on its own and releases the native context when it finishes.
      */
     close() {
         this.#native.close();
     }
 
     /**
-     * Whether the context has been closed.
+     * Whether close() has been called on this wrapper.
      * @returns {boolean}
      */
     get isClosed() {
@@ -134,14 +144,14 @@ class UpscalerContext {
     }
 
     /**
-     * Free the native context resources.
+     * Release the context. See StableDiffusionContext#close.
      */
     close() {
         this.#native.close();
     }
 
     /**
-     * Whether the context has been closed.
+     * Whether close() has been called on this wrapper.
      * @returns {boolean}
      */
     get isClosed() {

@@ -330,6 +330,13 @@ export class UpscalerContext {
 
 // --- Free functions ---
 
+/**
+ * Cancel any in-flight generate/upscale operation. Takes effect at the
+ * next sampling-step boundary (typically within a fraction of a second
+ * to a few seconds, depending on step duration). Normally invoked
+ * automatically via AbortSignal — call this directly only for the
+ * process-wide escape hatch.
+ */
 export function abort(): void;
 export function convert(options: ConvertOptions): Promise<boolean>;
 export function preprocessCanny(image: SdImage, options?: CannyOptions): boolean;

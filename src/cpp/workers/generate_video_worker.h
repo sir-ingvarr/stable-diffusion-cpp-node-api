@@ -3,16 +3,19 @@
 #include <napi.h>
 #include <stable-diffusion.h>
 
+#include <utility>
+
 #include "../abort_helper.h"
+#include "../sd_context.h"
 #include "helpers/image_helpers.h"
 #include "helpers/params_converter.h"
 
 class GenerateVideoWorker : public Napi::AsyncWorker {
   public:
-    GenerateVideoWorker(Napi::Env env, sd_ctx_t* ctx, const Napi::Object& opts)
+    GenerateVideoWorker(Napi::Env env, SdCtxPtr ctx, const Napi::Object& opts)
         : Napi::AsyncWorker(env),
           deferred_(Napi::Promise::Deferred::New(env)),
-          ctx_(ctx),
+          ctx_(std::move(ctx)),
           result_frames_(nullptr),
           num_frames_(0) {
         params_ = ParamsConverter::ToVidGenParams(opts, ss_, as_);
@@ -21,21 +24,24 @@ class GenerateVideoWorker : public Napi::AsyncWorker {
     Napi::Promise::Deferred& Deferred() { return deferred_; }
 
     void Execute() override {
-        AbortHelper::clearAbort();
-
-        if (setjmp(AbortHelper::jmp_buf_storage) != 0) {
-            AbortHelper::jmp_active = false;
-            AbortHelper::clearAbort();
+        try {
+            AbortHelper::Scope abort_scope;
+            result_frames_ = generate_video(ctx_.get(), &params_, &num_frames_);
+            if (!result_frames_) {
+                SetError("Video generation failed");
+            }
+        } catch (const AbortHelper::AbortException&) {
+            result_frames_ = nullptr;
+            num_frames_ = 0;
             SetError("Aborted");
-            return;
-        }
-        AbortHelper::jmp_active = true;
-
-        result_frames_ = generate_video(ctx_, &params_, &num_frames_);
-        AbortHelper::jmp_active = false;
-
-        if (!result_frames_) {
-            SetError("Video generation failed");
+        } catch (const std::exception& e) {
+            result_frames_ = nullptr;
+            num_frames_ = 0;
+            SetError(e.what());
+        } catch (...) {
+            result_frames_ = nullptr;
+            num_frames_ = 0;
+            SetError("Video generation failed (unknown exception)");
         }
     }
 
@@ -66,7 +72,7 @@ class GenerateVideoWorker : public Napi::AsyncWorker {
 
   private:
     Napi::Promise::Deferred deferred_;
-    sd_ctx_t* ctx_;
+    SdCtxPtr ctx_;
     sd_vid_gen_params_t params_;
     StringStore ss_;
     ArrayStore as_;

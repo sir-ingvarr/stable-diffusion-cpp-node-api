@@ -3,7 +3,6 @@
 #include <napi.h>
 #include <stable-diffusion.h>
 
-#include "../abort_helper.h"
 #include "helpers/params_converter.h"
 
 class CreateContextWorker : public Napi::AsyncWorker {
@@ -20,20 +19,7 @@ class CreateContextWorker : public Napi::AsyncWorker {
     Napi::Promise::Deferred& Deferred() { return deferred_; }
 
     void Execute() override {
-        AbortHelper::clearAbort();
-
-        if (setjmp(AbortHelper::jmp_buf_storage) != 0) {
-            AbortHelper::jmp_active = false;
-            AbortHelper::clearAbort();
-            ctx_ = nullptr;
-            SetError("Aborted");
-            return;
-        }
-        AbortHelper::jmp_active = true;
-
         ctx_ = new_sd_ctx(&params_);
-        AbortHelper::jmp_active = false;
-
         if (!ctx_) {
             SetError("Failed to create StableDiffusion context (model loading failed)");
         }
@@ -43,7 +29,8 @@ class CreateContextWorker : public Napi::AsyncWorker {
         Napi::Env env = Env();
         Napi::HandleScope scope(env);
 
-        // Create the JS wrapper by calling the constructor with the raw pointer
+        // Hand the raw pointer to the JS wrapper; it takes ownership
+        // by wrapping it in a shared_ptr with free_sd_ctx as deleter.
         Napi::External<sd_ctx_t> ext = Napi::External<sd_ctx_t>::New(env, ctx_);
         Napi::Object obj = constructor_ref_.New({ext});
         deferred_.Resolve(obj);

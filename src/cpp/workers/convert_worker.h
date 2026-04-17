@@ -5,7 +5,6 @@
 
 #include <string>
 
-#include "../abort_helper.h"
 #include "helpers/params_converter.h"
 
 class ConvertWorker : public Napi::AsyncWorker {
@@ -30,17 +29,6 @@ class ConvertWorker : public Napi::AsyncWorker {
     Napi::Promise::Deferred& Deferred() { return deferred_; }
 
     void Execute() override {
-        AbortHelper::clearAbort();
-
-        if (setjmp(AbortHelper::jmp_buf_storage) != 0) {
-            AbortHelper::jmp_active = false;
-            AbortHelper::clearAbort();
-            result_ = false;
-            SetError("Aborted");
-            return;
-        }
-        AbortHelper::jmp_active = true;
-
         result_ = convert(
             input_path_.c_str(),
             vae_path_.empty() ? nullptr : vae_path_.c_str(),
@@ -48,7 +36,6 @@ class ConvertWorker : public Napi::AsyncWorker {
             output_type_,
             tensor_type_rules_.empty() ? nullptr : tensor_type_rules_.c_str(),
             convert_name_);
-        AbortHelper::jmp_active = false;
     }
 
     void OnOK() override {

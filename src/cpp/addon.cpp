@@ -105,7 +105,11 @@ static Napi::Value Abort(const Napi::CallbackInfo& info) {
 // --- Module init ---
 
 static Napi::Object Init(Napi::Env env, Napi::Object exports) {
+    // Register our progress callback once. It must stay registered even
+    // when the user hasn't set a JS callback, because it's also our
+    // cancellation point.
     ProgressCallback::Init();
+
     StableDiffusionContext::Init(env, exports);
     UpscalerContext::Init(env, exports);
 

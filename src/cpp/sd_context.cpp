@@ -25,24 +25,20 @@ Napi::Object StableDiffusionContext::Init(Napi::Env env, Napi::Object exports) {
 }
 
 StableDiffusionContext::StableDiffusionContext(const Napi::CallbackInfo& info)
-    : Napi::ObjectWrap<StableDiffusionContext>(info), ctx_(nullptr) {
+    : Napi::ObjectWrap<StableDiffusionContext>(info) {
     Napi::Env env = info.Env();
 
-    // Internal construction from Create() — receives an External<sd_ctx_t>
+    // Internal construction from Create() — receives an External<sd_ctx_t>.
     if (info.Length() >= 1 && info[0].IsExternal()) {
-        ctx_ = info[0].As<Napi::External<sd_ctx_t>>().Data();
+        sd_ctx_t* raw = info[0].As<Napi::External<sd_ctx_t>>().Data();
+        ctx_ = SdCtxPtr(raw, [](sd_ctx_t* c) {
+            if (c) free_sd_ctx(c);
+        });
         return;
     }
 
     Napi::TypeError::New(env, "Use StableDiffusionContext.create() instead of new")
         .ThrowAsJavaScriptException();
-}
-
-StableDiffusionContext::~StableDiffusionContext() {
-    if (ctx_) {
-        free_sd_ctx(ctx_);
-        ctx_ = nullptr;
-    }
 }
 
 Napi::Value StableDiffusionContext::Create(const Napi::CallbackInfo& info) {
@@ -101,7 +97,7 @@ Napi::Value StableDiffusionContext::GetDefaultSampleMethod(const Napi::CallbackI
         Napi::Error::New(env, "Context is closed").ThrowAsJavaScriptException();
         return env.Undefined();
     }
-    sample_method_t method = sd_get_default_sample_method(ctx_);
+    sample_method_t method = sd_get_default_sample_method(ctx_.get());
     return Napi::String::New(env, sd_sample_method_name(method));
 }
 
@@ -118,17 +114,16 @@ Napi::Value StableDiffusionContext::GetDefaultScheduler(const Napi::CallbackInfo
         method = str_to_sample_method(name.c_str());
     }
 
-    scheduler_t scheduler = sd_get_default_scheduler(ctx_, method);
+    scheduler_t scheduler = sd_get_default_scheduler(ctx_.get(), method);
     return Napi::String::New(env, sd_scheduler_name(scheduler));
 }
 
 void StableDiffusionContext::Close(const Napi::CallbackInfo& info) {
-    if (ctx_) {
-        free_sd_ctx(ctx_);
-        ctx_ = nullptr;
-    }
+    // Drop the wrapper's ref. If workers still hold refs, the native ctx
+    // is freed when the last one completes; otherwise it's freed now.
+    ctx_.reset();
 }
 
 Napi::Value StableDiffusionContext::IsClosed(const Napi::CallbackInfo& info) {
-    return Napi::Boolean::New(info.Env(), ctx_ == nullptr);
+    return Napi::Boolean::New(info.Env(), !ctx_);
 }

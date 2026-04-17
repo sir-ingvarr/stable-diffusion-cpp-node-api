@@ -3,13 +3,16 @@
 #include <napi.h>
 #include <stable-diffusion.h>
 
+#include <memory>
+
+using UpscalerCtxPtr = std::shared_ptr<upscaler_ctx_t>;
+
 class UpscalerContext : public Napi::ObjectWrap<UpscalerContext> {
   public:
     static Napi::Object Init(Napi::Env env, Napi::Object exports);
     static Napi::Value Create(const Napi::CallbackInfo& info);
 
     UpscalerContext(const Napi::CallbackInfo& info);
-    ~UpscalerContext();
 
   private:
     static Napi::FunctionReference constructor_;
@@ -19,5 +22,5 @@ class UpscalerContext : public Napi::ObjectWrap<UpscalerContext> {
     void Close(const Napi::CallbackInfo& info);
     Napi::Value IsClosed(const Napi::CallbackInfo& info);
 
-    upscaler_ctx_t* ctx_;
+    UpscalerCtxPtr ctx_;
 };

@@ -22,20 +22,16 @@ Napi::Object UpscalerContext::Init(Napi::Env env, Napi::Object exports) {
 }
 
 UpscalerContext::UpscalerContext(const Napi::CallbackInfo& info)
-    : Napi::ObjectWrap<UpscalerContext>(info), ctx_(nullptr) {
+    : Napi::ObjectWrap<UpscalerContext>(info) {
     if (info.Length() >= 1 && info[0].IsExternal()) {
-        ctx_ = info[0].As<Napi::External<upscaler_ctx_t>>().Data();
+        upscaler_ctx_t* raw = info[0].As<Napi::External<upscaler_ctx_t>>().Data();
+        ctx_ = UpscalerCtxPtr(raw, [](upscaler_ctx_t* c) {
+            if (c) free_upscaler_ctx(c);
+        });
         return;
     }
     Napi::TypeError::New(info.Env(), "Use UpscalerContext.create() instead of new")
         .ThrowAsJavaScriptException();
-}
-
-UpscalerContext::~UpscalerContext() {
-    if (ctx_) {
-        free_upscaler_ctx(ctx_);
-        ctx_ = nullptr;
-    }
 }
 
 Napi::Value UpscalerContext::Create(const Napi::CallbackInfo& info) {
@@ -90,16 +86,13 @@ Napi::Value UpscalerContext::GetUpscaleFactor(const Napi::CallbackInfo& info) {
         Napi::Error::New(env, "Context is closed").ThrowAsJavaScriptException();
         return env.Undefined();
     }
-    return Napi::Number::New(env, get_upscale_factor(ctx_));
+    return Napi::Number::New(env, get_upscale_factor(ctx_.get()));
 }
 
 void UpscalerContext::Close(const Napi::CallbackInfo& info) {
-    if (ctx_) {
-        free_upscaler_ctx(ctx_);
-        ctx_ = nullptr;
-    }
+    ctx_.reset();
 }
 
 Napi::Value UpscalerContext::IsClosed(const Napi::CallbackInfo& info) {
-    return Napi::Boolean::New(info.Env(), ctx_ == nullptr);
+    return Napi::Boolean::New(info.Env(), !ctx_);
 }
