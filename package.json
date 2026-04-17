@@ -49,9 +49,9 @@
         "node-addon-api": "^8.3.1"
     },
     "optionalDependencies": {
-        "@stable-diffusion-cpp-node-api/darwin-arm64": "0.9.2",
-        "@stable-diffusion-cpp-node-api/darwin-x64": "0.9.2",
-        "@stable-diffusion-cpp-node-api/linux-x64": "0.9.2",
-        "@stable-diffusion-cpp-node-api/win32-x64": "0.9.2"
+        "@stable-diffusion-cpp-node-api/darwin-arm64": "0.9.3",
+        "@stable-diffusion-cpp-node-api/darwin-x64": "0.9.3",
+        "@stable-diffusion-cpp-node-api/linux-x64": "0.9.3",
+        "@stable-diffusion-cpp-node-api/win32-x64": "0.9.3"
     }
 }
