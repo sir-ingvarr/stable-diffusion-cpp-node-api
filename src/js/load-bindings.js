@@ -33,7 +33,7 @@ function loadBinding() {
         `stable-diffusion-cpp-node-api: no prebuilt binary for ${key}.\n` +
         'Supported platforms: ' + Object.keys(PLATFORMS).join(', ') + '.\n' +
         'To build from source, install from git instead:\n' +
-        '  npm install git+https://github.com/sir-ingvarr/node-stable-diffusion-cpp.git'
+        '  npm install git+https://github.com/sir-ingvarr/stable-diffusion-cpp-node-api'
     );
 }
 

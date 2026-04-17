@@ -15,6 +15,6 @@
     "license": "MIT",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/sir-ingvarr/node-stable-diffusion-cpp.git"
+        "url": "git+https://github.com/sir-ingvarr/stable-diffusion-cpp-node-api.git"
     }
 }
