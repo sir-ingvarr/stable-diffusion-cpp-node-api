@@ -11,6 +11,7 @@ All async functions return Promises. All heavy operations (model loading, genera
   - [UpscalerContext](#upscalercontext)
 - [Free functions](#free-functions)
   - [convert](#convertoptions)
+  - [extractMetaData](#extractmetadatapath)
   - [preprocessCanny](#preprocesscannyimage-options)
   - [setLogCallback](#setlogcallbackcallback)
   - [setProgressCallback](#setprogresscallbackcallback)
@@ -35,6 +36,8 @@ All async functions return Promises. All heavy operations (model loading, genera
   - [ConvertOptions](#convertoptions-1)
   - [CannyOptions](#cannyoptions)
   - [PreviewOptions](#previewoptions)
+  - [ModelMetadata](#modelmetadata)
+  - [SDVersionSlug](#sdversionslug)
 - [Enums (string literal types)](#enums)
 
 ---
@@ -249,6 +252,46 @@ const success = await sd.convert({
 - `options` — [`ConvertOptions`](#convertoptions-1) object
 
 **Returns:** `Promise<boolean>` — `true` on success
+
+---
+
+### `extractMetaData(path)`
+
+Read model metadata directly from the file header without loading any tensor data. Works on safetensors, gguf, and ckpt files. Runs in milliseconds even for multi-GB models.
+
+Useful for preflight checks before paying the load cost — detect the model architecture, verify required components are bundled (e.g. SD3 needs separate CLIP-L/CLIP-G/T5-XXL when not), inspect weight quantization, or estimate parameter memory.
+
+```javascript
+const meta = await sd.extractMetaData('sd3.5_large.safetensors');
+
+console.log(meta.version);            // 'sd3'
+console.log(meta.versionLabel);       // 'SD3.x'
+console.log(meta.isSd3, meta.isDit);  // true true
+console.log(meta.hasClipL, meta.hasT5xxl); // false false — must supply separately
+console.log(meta.diffusionWeightTypes);    // { f16: 923 }
+console.log(meta.vaeWeightTypes);          // { bf16: 244 }
+console.log((meta.estParamsBytes / 1024 / 1024 / 1024).toFixed(1) + ' GB');
+
+// Common pattern: auto-tune options based on the model
+const opts = { /* ... */ };
+if (meta.isSd3 && !opts.vaeTiling) {
+    // SD3 fp16 VAE can overflow on full-image decode → black images.
+    // Tiling sidesteps the overflow.
+    opts.vaeTiling = { enabled: true };
+}
+if (meta.isDit && !meta.hasClipL && !meta.hasT5xxl) {
+    throw new Error(`${meta.versionLabel} model has no embedded text encoders — pass clipLPath / clipGPath / t5xxlPath`);
+}
+```
+
+**Parameters:**
+- `path` — absolute or relative path to the model file
+
+**Returns:** `Promise<ModelMetadata>` — see [`ModelMetadata`](#modelmetadata)
+
+**Throws:** Rejects if the file can't be opened or parsed (missing, corrupt, unsupported format).
+
+**Note:** This is a header read — no tensors are loaded into memory. The returned `estParamsBytes` is computed from tensor shapes and dtypes recorded in the header, not from actually allocating memory.
 
 ---
 
@@ -688,6 +731,51 @@ Options for `setPreviewCallback()`.
 | `interval` | `number` | `1` | Callback every N steps |
 | `denoised` | `boolean` | `true` | Include denoised preview |
 | `noisy` | `boolean` | `false` | Include noisy preview |
+
+---
+
+### ModelMetadata
+
+Returned by [`extractMetaData()`](#extractmetadatapath). All fields are derived from the file header alone — no tensors are loaded.
+
+| Property | Type | Description |
+|---|---|---|
+| `version` | [`SDVersionSlug`](#sdversionslug) | Stable programmatic identifier for the architecture (e.g. `'sd3'`, `'sdxl_inpaint'`, `'flux2_klein'`). `'unknown'` if detection fails. |
+| `versionLabel` | `string` | Human-readable label (e.g. `'SD3.x'`, `'SDXL Inpaint'`, `'Flux.2 klein'`). |
+| `isUnet` | `boolean` | UNet-based architecture (SD1/SD2/SDXL family). |
+| `isDit` | `boolean` | Diffusion-Transformer architecture (SD3, Flux, Flux2, Wan, Qwen-Image, Z-Image). |
+| `isSd1` | `boolean` | Any SD1.x variant. |
+| `isSd2` | `boolean` | Any SD2.x variant. |
+| `isSdxl` | `boolean` | Any SDXL variant. |
+| `isSd3` | `boolean` | SD3 / SD3.5. |
+| `isFlux` | `boolean` | Flux.1 family (incl. Fill, Controls, Flex.2, Chroma Radiance, Ovis). |
+| `isFlux2` | `boolean` | Flux.2 family (incl. klein). |
+| `isWan` | `boolean` | Wan 2.x family. |
+| `isQwenImage` | `boolean` | Qwen-Image. |
+| `isZImage` | `boolean` | Z-Image. |
+| `isInpaint` | `boolean` | Inpaint variant of any of the above. |
+| `isControl` | `boolean` | Control variant (Flux Controls, Flex.2). |
+| `hasDiffusionModel` | `boolean` | File contains diffusion model weights (`model.diffusion_model.*` or `unet.*`). |
+| `hasVae` | `boolean` | File contains VAE weights (`first_stage_model.*` or `vae.*`). |
+| `hasClipL` | `boolean` | File contains a bundled CLIP-L text encoder. |
+| `hasClipG` | `boolean` | File contains a bundled CLIP-G text encoder. |
+| `hasT5xxl` | `boolean` | File contains a bundled T5-XXL text encoder. |
+| `hasControlNet` | `boolean` | File contains ControlNet weights. |
+| `isLora` | `boolean` | File looks like a LoRA adapter (presence of `.lora_up`/`.lora_down`/`.lora_A`/`.lora_B`). |
+| `tensorCount` | `number` | Total number of tensors in the file. |
+| `estParamsBytes` | `number` | Estimated bytes occupied by parameters once loaded (file dtypes, no conversion, 128-byte alignment per tensor). |
+| `weightTypes` | `Record<string, number>` | Tensor count grouped by ggml type name across the whole file (e.g. `{ f16: 1234, f32: 56 }`). Keys are the ggml type names: `'f32'`, `'f16'`, `'bf16'`, `'q4_0'`, `'q8_0'`, etc. |
+| `diffusionWeightTypes` | `Record<string, number>` | Same shape as `weightTypes`, restricted to diffusion-model tensors. |
+| `vaeWeightTypes` | `Record<string, number>` | Same shape as `weightTypes`, restricted to VAE tensors. |
+| `conditionerWeightTypes` | `Record<string, number>` | Same shape as `weightTypes`, restricted to text encoder / conditioner tensors. |
+
+---
+
+### SDVersionSlug
+
+Stable programmatic identifier for a detected model architecture. Returned in [`ModelMetadata.version`](#modelmetadata).
+
+`'sd1'`, `'sd1_inpaint'`, `'sd1_pix2pix'`, `'sd1_tiny_unet'`, `'sd2'`, `'sd2_inpaint'`, `'sd2_tiny_unet'`, `'sdxs'`, `'sdxl'`, `'sdxl_inpaint'`, `'sdxl_pix2pix'`, `'sdxl_vega'`, `'sdxl_ssd1b'`, `'svd'`, `'sd3'`, `'flux'`, `'flux_fill'`, `'flux_controls'`, `'flex2'`, `'chroma_radiance'`, `'wan2'`, `'wan2_2_i2v'`, `'wan2_2_ti2v'`, `'qwen_image'`, `'flux2'`, `'flux2_klein'`, `'z_image'`, `'ovis_image'`, `'unknown'`
 
 ---
 

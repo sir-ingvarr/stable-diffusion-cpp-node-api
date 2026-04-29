@@ -272,6 +272,61 @@ export interface ConvertOptions extends AbortableOptions {
     convertName?: boolean;
 }
 
+export type SDVersionSlug =
+    | 'sd1' | 'sd1_inpaint' | 'sd1_pix2pix' | 'sd1_tiny_unet'
+    | 'sd2' | 'sd2_inpaint' | 'sd2_tiny_unet'
+    | 'sdxs'
+    | 'sdxl' | 'sdxl_inpaint' | 'sdxl_pix2pix' | 'sdxl_vega' | 'sdxl_ssd1b'
+    | 'svd'
+    | 'sd3'
+    | 'flux' | 'flux_fill' | 'flux_controls' | 'flex2'
+    | 'chroma_radiance'
+    | 'wan2' | 'wan2_2_i2v' | 'wan2_2_ti2v'
+    | 'qwen_image'
+    | 'flux2' | 'flux2_klein'
+    | 'z_image'
+    | 'ovis_image'
+    | 'unknown';
+
+export interface ModelMetadata {
+    /** Detected version as a stable programmatic slug. */
+    version: SDVersionSlug;
+    /** Human-readable version label (e.g. "SD3.x", "Flux", "SDXL Inpaint"). */
+    versionLabel: string;
+
+    isUnet: boolean;
+    isDit: boolean;
+    isSd1: boolean;
+    isSd2: boolean;
+    isSdxl: boolean;
+    isSd3: boolean;
+    isFlux: boolean;
+    isFlux2: boolean;
+    isWan: boolean;
+    isQwenImage: boolean;
+    isZImage: boolean;
+    isInpaint: boolean;
+    isControl: boolean;
+
+    hasDiffusionModel: boolean;
+    hasVae: boolean;
+    hasClipL: boolean;
+    hasClipG: boolean;
+    hasT5xxl: boolean;
+    hasControlNet: boolean;
+    isLora: boolean;
+
+    tensorCount: number;
+    /** Estimated bytes occupied by parameters once loaded (file dtypes, no conversion). */
+    estParamsBytes: number;
+
+    /** Tensor count grouped by ggml type name (e.g. { f16: 1234, f32: 56 }). */
+    weightTypes: Record<string, number>;
+    diffusionWeightTypes: Record<string, number>;
+    vaeWeightTypes: Record<string, number>;
+    conditionerWeightTypes: Record<string, number>;
+}
+
 export interface CannyOptions {
     highThreshold?: number;
     lowThreshold?: number;
@@ -339,6 +394,12 @@ export class UpscalerContext {
  */
 export function abort(): void;
 export function convert(options: ConvertOptions): Promise<boolean>;
+/**
+ * Read model metadata (version, components, weight type stats, estimated
+ * memory) directly from the file header without loading any tensor data.
+ * Works on safetensors, gguf, and ckpt files.
+ */
+export function extractMetaData(path: string): Promise<ModelMetadata>;
 export function preprocessCanny(image: SdImage, options?: CannyOptions): boolean;
 export function setLogCallback(callback: ((data: LogCallbackData) => void) | null): void;
 export function setProgressCallback(callback: ((data: ProgressCallbackData) => void) | null): void;

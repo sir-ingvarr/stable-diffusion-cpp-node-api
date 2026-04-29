@@ -168,6 +168,7 @@ module.exports = {
         const { signal, ...opts } = options || {};
         return withAbortSignal(native.convert(opts), signal);
     },
+    extractMetaData: native.extractMetaData,
     preprocessCanny: native.preprocessCanny,
     setLogCallback: native.setLogCallback,
     setProgressCallback: native.setProgressCallback,

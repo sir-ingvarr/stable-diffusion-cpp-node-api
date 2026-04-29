@@ -114,6 +114,7 @@ Edit the constants at the top of `smoke.js` to change prompt, dimensions, steps,
 | `UpscalerContext.create(opts)` | Load ESRGAN model, returns `Promise<UpscalerContext>` |
 | `upscaler.upscale(image, factor?)` | Upscale an image, returns `Promise<SdImage>` |
 | `convert(opts)` | Convert model format, returns `Promise<boolean>` |
+| `extractMetaData(path)` | Read model header (version, components, dtype stats) without loading weights, returns `Promise<ModelMetadata>` |
 | `preprocessCanny(image, opts?)` | Canny edge detection (sync, in-place) |
 | `setLogCallback(fn)` | Set/clear log callback |
 | `setProgressCallback(fn)` | Set/clear progress callback |

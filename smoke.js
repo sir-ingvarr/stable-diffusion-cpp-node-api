@@ -69,6 +69,35 @@ async function main() {
         if (step === steps) process.stderr.write('\n');
     });
 
+    // Inspect model header (no weights loaded — just safetensors/gguf metadata).
+    const meta = await sd.extractMetaData(path.resolve(modelPath));
+    const gb = (b) => (b / 1024 / 1024 / 1024).toFixed(2);
+    const fmtTypes = (m) => Object.entries(m).map(([k, v]) => `${k}:${v}`).join(' ') || '—';
+    console.log(`Model: ${meta.versionLabel} [${meta.version}], ${meta.tensorCount} tensors, ~${gb(meta.estParamsBytes)} GB`);
+    console.log(`  diffusion: ${fmtTypes(meta.diffusionWeightTypes)}`);
+    console.log(`  vae:       ${fmtTypes(meta.vaeWeightTypes)}`);
+    console.log(`  text-enc:  ${fmtTypes(meta.conditionerWeightTypes)}`);
+    console.log(`  bundled:   diffusion=${meta.hasDiffusionModel} vae=${meta.hasVae} clipL=${meta.hasClipL} clipG=${meta.hasClipG} t5xxl=${meta.hasT5xxl}`);
+    console.log('');
+
+    // Auto-tune options based on what we just learned about the file.
+    const genOptions = {};
+
+    // SD3.5 has a documented fp16 VAE overflow on full-image decode that
+    // produces all-black output. VAE tiling sidesteps it. Enable by default
+    // unless the caller already configured tiling.
+    if (meta.isSd3 && !genOptions.vaeTiling) {
+        console.log('SD3 detected — auto-enabling VAE tiling to avoid black-image overflow.');
+        genOptions.vaeTiling = { enabled: true };
+    }
+
+    // Loud warning when the file isn't self-contained: SD3/Flux/Wan/etc.
+    // typically need clip_l + clip_g + t5xxl supplied separately.
+    if (meta.isDit && meta.hasDiffusionModel && !meta.hasClipL && !meta.hasT5xxl) {
+        console.warn(`WARNING: ${meta.versionLabel} model has no embedded text encoders.`);
+        console.warn('         Pass clipLPath / clipGPath / t5xxlPath when creating the context.');
+    }
+
     // Load model
     console.log(`Loading model: ${modelPath}`);
     const startLoad = Date.now();
@@ -104,6 +133,7 @@ async function main() {
                 txtCfg: CFG_SCALE,
             },
         },
+        ...genOptions,
     });
     const genTime = ((Date.now() - startGen) / 1000).toFixed(1);
     console.log(`Generation completed in ${genTime}s`);

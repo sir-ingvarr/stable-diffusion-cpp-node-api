@@ -10,6 +10,7 @@
 #include "sd_context.h"
 #include "upscaler_context.h"
 #include "workers/convert_worker.h"
+#include "workers/extract_metadata_worker.h"
 
 // --- Free functions ---
 
@@ -27,6 +28,20 @@ static Napi::Value Version(const Napi::CallbackInfo& info) {
 
 static Napi::Value Commit(const Napi::CallbackInfo& info) {
     return Napi::String::New(info.Env(), sd_commit());
+}
+
+static Napi::Value ExtractMetaData(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    if (info.Length() < 1 || !info[0].IsString()) {
+        Napi::TypeError::New(env, "Expected model file path string").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    std::string path = info[0].As<Napi::String>().Utf8Value();
+    auto* worker = new ExtractMetadataWorker(env, std::move(path));
+    auto promise = worker->Deferred().Promise();
+    worker->Queue();
+    return promise;
 }
 
 static Napi::Value Convert(const Napi::CallbackInfo& info) {
@@ -118,6 +133,7 @@ static Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("version", Napi::Function::New(env, Version));
     exports.Set("commit", Napi::Function::New(env, Commit));
     exports.Set("convert", Napi::Function::New(env, Convert));
+    exports.Set("extractMetaData", Napi::Function::New(env, ExtractMetaData));
     exports.Set("preprocessCanny", Napi::Function::New(env, PreprocessCanny));
     exports.Set("setLogCallback", Napi::Function::New(env, LogCallback::Set));
     exports.Set("setProgressCallback", Napi::Function::New(env, ProgressCallback::Set));
