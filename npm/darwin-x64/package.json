@@ -1,6 +1,6 @@
 {
     "name": "@stable-diffusion-cpp-node-api/darwin-x64",
-    "version": "0.9.3",
+    "version": "0.10.0",
     "description": "stable-diffusion-cpp-node-api native binary for macOS x64",
     "os": [
         "darwin"
