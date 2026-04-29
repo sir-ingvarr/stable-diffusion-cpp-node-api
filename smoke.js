@@ -14,15 +14,25 @@ const sd = require('./src/js/index');
 
 // ── Configuration ──────────────────────────────────────────────────────────────
 
-const PROMPT          = 'a photograph of a cat sitting on a windowsill, golden hour lighting, 8k';
+const RUNS = [
+    {
+        prompt: 'a photograph of a cat sitting on a windowsill, golden hour lighting, 8k',
+        seed: 42,
+        outputPath: 'smoke_output_1.ppm',
+    },
+    {
+        prompt: 'a photograph of a red fox in a snowy forest, soft morning light, 8k',
+        seed: 1337,
+        outputPath: 'smoke_output_2.ppm',
+    },
+];
+
 const NEGATIVE_PROMPT = 'blurry, low quality, distorted';
 const WIDTH           = 512;
 const HEIGHT          = 512;
 const SAMPLE_STEPS    = 20;
 const CFG_SCALE       = 7.0;
-const SEED            = 42;
 const BATCH_COUNT     = 1;
-const OUTPUT_PATH     = 'smoke_output.ppm';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -114,54 +124,42 @@ async function main() {
     console.log(`Default sampler: ${defaultMethod}, scheduler: ${defaultScheduler}`);
     console.log('');
 
-    // Generate
-    console.log(`Generating ${BATCH_COUNT} image(s) at ${WIDTH}x${HEIGHT}, ${SAMPLE_STEPS} steps, seed=${SEED}`);
-    console.log(`Prompt: "${PROMPT}"`);
-    console.log('');
+    // Run two subsequent generations on the same context.
+    for (let r = 0; r < RUNS.length; r++) {
+        const run = RUNS[r];
+        console.log(`── Run ${r + 1}/${RUNS.length} ──────────────────────────────`);
+        console.log(`Generating ${BATCH_COUNT} image(s) at ${WIDTH}x${HEIGHT}, ${SAMPLE_STEPS} steps, seed=${run.seed}`);
+        console.log(`Prompt: "${run.prompt}"`);
+        console.log('');
 
-    const startGen = Date.now();
-    const images = await ctx.generateImage({
-        prompt: PROMPT,
-        negativePrompt: NEGATIVE_PROMPT,
-        width: WIDTH,
-        height: HEIGHT,
-        seed: SEED,
-        batchCount: BATCH_COUNT,
-        sampleParams: {
-            sampleSteps: SAMPLE_STEPS,
-            guidance: {
-                txtCfg: CFG_SCALE,
+        const startGen = Date.now();
+        const images = await ctx.generateImage({
+            prompt: run.prompt,
+            negativePrompt: NEGATIVE_PROMPT,
+            width: WIDTH,
+            height: HEIGHT,
+            seed: run.seed,
+            batchCount: BATCH_COUNT,
+            sampleParams: {
+                sampleSteps: SAMPLE_STEPS,
+                guidance: {
+                    txtCfg: CFG_SCALE,
+                },
             },
-        },
-        ...genOptions,
-    });
-    const genTime = ((Date.now() - startGen) / 1000).toFixed(1);
-    console.log(`Generation completed in ${genTime}s`);
+            ...genOptions,
+        });
+        const genTime = ((Date.now() - startGen) / 1000).toFixed(1);
+        console.log(`Generation completed in ${genTime}s`);
 
-    // Save output as PPM (viewable in any image viewer)
-    for (let i = 0; i < images.length; i++) {
-        const img = images[i];
-        const outPath = images.length === 1
-            ? OUTPUT_PATH
-            : OUTPUT_PATH.replace('.ppm', `_${i}.ppm`);
-
-        // Verify data size matches dimensions
+        const img = images[0];
         const expected = img.width * img.height * img.channel;
         if (img.data.length !== expected) {
             console.warn(`WARNING: data size mismatch! Expected ${expected} bytes (${img.width}x${img.height}x${img.channel}), got ${img.data.length}`);
         }
-
-        writePPM(outPath, img);
-        console.log(`Saved ${img.width}x${img.height}x${img.channel} image to ${outPath} (${img.data.length} bytes)`);
+        writePPM(run.outputPath, img);
+        console.log(`Saved ${img.width}x${img.height}x${img.channel} image to ${run.outputPath} (${img.data.length} bytes)`);
+        console.log('');
     }
-
-    console.log('');
-    console.log('Tip: convert PPM to PNG with ImageMagick:');
-    console.log(`  magick ${OUTPUT_PATH} output.png`);
-    console.log('');
-    console.log('Or with sharp in Node.js (from raw RGB):');
-    console.log('  const sharp = require("sharp");');
-    console.log(`  sharp(img.data, { raw: { width: img.width, height: img.height, channels: img.channel } }).png().toFile("output.png");`);
 
     // Cleanup
     ctx.close();

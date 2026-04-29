@@ -28,6 +28,7 @@ All async functions return Promises. All heavy operations (model loading, genera
   - [SampleParams](#sampleparams)
   - [GuidanceParams](#guidanceparams)
   - [CacheParams](#cacheparams)
+  - [HiresParams](#hiresparams)
   - [TilingParams](#tilingparams)
   - [PhotoMakerParams](#photomakerparams)
   - [LoraDefinition](#loradefinition)
@@ -48,7 +49,7 @@ All async functions return Promises. All heavy operations (model loading, genera
 
 The main class for image and video generation. Wraps a loaded model and all its components (text encoders, diffusion model, VAE, etc.).
 
-Contexts are expensive to create (model loading) and should be reused for multiple generations.
+Contexts are expensive to create (model loading) and should be reused for multiple generations. This relies on `freeParamsImmediately` being `false` (our default — upstream sd.cpp defaults it to `true`, which makes the context single-use). See [`freeParamsImmediately`](#contextoptions) for the trade-off.
 
 #### `StableDiffusionContext.create(options)`
 
@@ -472,8 +473,8 @@ All path fields are optional. At minimum, provide either `modelPath` (for single
 | `photoMakerPath` | `string` | — | PhotoMaker model |
 | `tensorTypeRules` | `string` | — | Custom tensor type override rules |
 | `embeddings` | [`EmbeddingDefinition[]`](#embeddingdefinition) | — | Textual inversion embeddings |
-| `vaeDecodeOnly` | `boolean` | `true` | Only load VAE decoder (saves memory) |
-| `freeParamsImmediately` | `boolean` | `true` | Free model weights after first use |
+| `vaeDecodeOnly` | `boolean` | `true` | Only load VAE decoder (saves memory). Set to `false` when using img2img (`initImage` / `strength`), inpainting, ControlNet with a control image, or pixel-space [hires upscalers](#hiresupscaler) (`'lanczos'`, `'nearest'`, `'model'`) — all of these need to encode pixels into latents. |
+| `freeParamsImmediately` | `boolean` | `false` | Free each model component's weights as soon as its stage finishes within a `generateImage` call. Lowers peak VRAM (peak ≈ largest single stage instead of all weights resident) but makes the context **single-use** — a second `generateImage` call would need to reload weights from disk and currently asserts on the Metal backend ([sd.cpp #1298](https://github.com/leejet/stable-diffusion.cpp/issues/1298)). Defaults to `false` so context reuse works out of the box; flip to `true` only if you're memory-constrained and doing one-shot generation. |
 | `nThreads` | `number` | CPU cores | Number of CPU threads |
 | `wtype` | [`SdType`](#sdtype) | `'count'` (auto) | Weight quantization type override |
 | `rngType` | [`RngType`](#rngtype) | `'cuda'` | Random number generator type |
@@ -525,6 +526,7 @@ Options for `ctx.generateImage()`.
 | `photoMaker` | [`PhotoMakerParams`](#photomakerparams) | — | PhotoMaker options |
 | `vaeTiling` | [`TilingParams`](#tilingparams) | disabled | VAE tiling for large images |
 | `cache` | [`CacheParams`](#cacheparams) | disabled | Step caching for faster generation |
+| `hires` | [`HiresParams`](#hiresparams) | disabled | Two-pass "Hires. fix" upscale-and-denoise |
 | `loras` | [`LoraDefinition[]`](#loradefinition) | — | LoRA models to apply |
 
 ---
@@ -616,7 +618,33 @@ Step caching accelerates generation by reusing intermediate results.
 | `maxContinuousCachedSteps` | `number` | `-1` (unlimited) | Max continuous cached steps |
 | `taylorseerNDerivatives` | `number` | `1` | TaylorSeer derivatives |
 | `taylorseerSkipInterval` | `number` | `1` | TaylorSeer skip interval |
+| `scmMask` | `string` | — | Dynamic SCM policy mask string (used when `scmPolicyDynamic` is on) |
 | `scmPolicyDynamic` | `boolean` | `true` | Dynamic SCM policy |
+| `spectrumW` | `number` | upstream | Spectrum cache: weight |
+| `spectrumM` | `number` | upstream | Spectrum cache: M |
+| `spectrumLam` | `number` | upstream | Spectrum cache: lambda |
+| `spectrumWindowSize` | `number` | upstream | Spectrum cache: window size |
+| `spectrumFlexWindow` | `number` | upstream | Spectrum cache: flex window |
+| `spectrumWarmupSteps` | `number` | upstream | Spectrum cache: warmup steps |
+| `spectrumStopPercent` | `number` | upstream | Spectrum cache: stop % |
+
+---
+
+### HiresParams
+
+Two-pass "Hires. fix" — generate at a smaller resolution, then upscale and run additional denoising steps at the larger size. Tends to produce sharper composition than direct large-resolution generation, faster than direct + post-upscale.
+
+| Property | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | `boolean` | `false` | Enable hires fix |
+| `upscaler` | [`HiresUpscaler`](#hiresupscaler) | `'latent'` | Upscaler to use between passes. Pixel-space modes (`'lanczos'`, `'nearest'`, `'model'`) require the context to be created with `vaeDecodeOnly: false`. |
+| `modelPath` | `string` | — | Upscaler model path (required when `upscaler` is `'model'`, e.g. ESRGAN) |
+| `scale` | `number` | `2.0` | Multiplier on width/height (ignored if `targetWidth`/`targetHeight` set) |
+| `targetWidth` | `number` | `0` | Explicit target width (overrides `scale`) |
+| `targetHeight` | `number` | `0` | Explicit target height |
+| `steps` | `number` | `0` | Pass-2 sample steps (0 = derive from `denoisingStrength`) |
+| `denoisingStrength` | `number` | `0.5` | Pass-2 strength (img2img-style) |
+| `upscaleTileSize` | `number` | `0` | Tile size for the upscaler (0 = no tiling) |
 
 ---
 
@@ -877,3 +905,21 @@ Step caching strategy.
 | `'dbcache'` | DBCache |
 | `'taylorseer'` | TaylorSeer |
 | `'cachedit'` | Cache-DiT |
+| `'spectrum'` | Spectrum cache |
+
+### HiresUpscaler
+
+Upscaler to use for the inter-pass step in [`HiresParams`](#hiresparams).
+
+| Value | Description |
+|---|---|
+| `'none'` | No upscaler |
+| `'latent'` | Latent upscale (default linear) |
+| `'latent_nearest'` | Latent upscale, nearest |
+| `'latent_nearest_exact'` | Latent upscale, nearest exact |
+| `'latent_antialiased'` | Latent upscale, antialiased |
+| `'latent_bicubic'` | Latent upscale, bicubic |
+| `'latent_bicubic_antialiased'` | Latent upscale, bicubic + antialiased |
+| `'lanczos'` | Pixel-space Lanczos |
+| `'nearest'` | Pixel-space nearest |
+| `'model'` | External upscaler model (`modelPath` required, e.g. ESRGAN) |

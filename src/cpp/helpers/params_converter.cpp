@@ -21,7 +21,7 @@ static sd_tiling_params_t ToTilingParams(const Napi::Object& obj) {
     return tp;
 }
 
-static sd_cache_params_t ToCacheParams(const Napi::Object& obj) {
+static sd_cache_params_t ToCacheParams(const Napi::Object& obj, StringStore& ss) {
     sd_cache_params_t cp;
     sd_cache_params_init(&cp);
     if (!obj.Has("cache")) return cp;
@@ -40,6 +40,7 @@ static sd_cache_params_t ToCacheParams(const Napi::Object& obj) {
             else if (ms == "dbcache") cp.mode = SD_CACHE_DBCACHE;
             else if (ms == "taylorseer") cp.mode = SD_CACHE_TAYLORSEER;
             else if (ms == "cachedit") cp.mode = SD_CACHE_CACHE_DIT;
+            else if (ms == "spectrum") cp.mode = SD_CACHE_SPECTRUM;
         }
     }
     cp.reuse_threshold = static_cast<float>(GetDouble(c, "reuseThreshold", cp.reuse_threshold));
@@ -56,8 +57,54 @@ static sd_cache_params_t ToCacheParams(const Napi::Object& obj) {
     cp.max_continuous_cached_steps = GetInt(c, "maxContinuousCachedSteps", cp.max_continuous_cached_steps);
     cp.taylorseer_n_derivatives = GetInt(c, "taylorseerNDerivatives", cp.taylorseer_n_derivatives);
     cp.taylorseer_skip_interval = GetInt(c, "taylorseerSkipInterval", cp.taylorseer_skip_interval);
+    cp.scm_mask = ss.add(c, "scmMask");
     cp.scm_policy_dynamic = GetBool(c, "scmPolicyDynamic", cp.scm_policy_dynamic);
+    cp.spectrum_w = static_cast<float>(GetDouble(c, "spectrumW", cp.spectrum_w));
+    cp.spectrum_m = GetInt(c, "spectrumM", cp.spectrum_m);
+    cp.spectrum_lam = static_cast<float>(GetDouble(c, "spectrumLam", cp.spectrum_lam));
+    cp.spectrum_window_size = GetInt(c, "spectrumWindowSize", cp.spectrum_window_size);
+    cp.spectrum_flex_window = static_cast<float>(GetDouble(c, "spectrumFlexWindow", cp.spectrum_flex_window));
+    cp.spectrum_warmup_steps = GetInt(c, "spectrumWarmupSteps", cp.spectrum_warmup_steps);
+    cp.spectrum_stop_percent = static_cast<float>(GetDouble(c, "spectrumStopPercent", cp.spectrum_stop_percent));
     return cp;
+}
+
+static sd_hires_params_t ToHiresParams(const Napi::Object& obj, StringStore& ss) {
+    sd_hires_params_t hp;
+    sd_hires_params_init(&hp);
+    if (!obj.Has("hires")) return hp;
+    Napi::Value val = obj.Get("hires");
+    if (!val.IsObject()) return hp;
+    Napi::Object h = val.As<Napi::Object>();
+
+    hp.enabled = GetBool(h, "enabled", hp.enabled);
+    // Upstream's str_to_sd_hires_upscaler matches against display names
+    // ("Lanczos", "Latent (nearest)", ...) — not the snake_case tokens we
+    // expose. Dispatch ourselves so JS users get the clean names.
+    if (h.Has("upscaler")) {
+        Napi::Value uv = h.Get("upscaler");
+        if (uv.IsString()) {
+            std::string us = uv.As<Napi::String>().Utf8Value();
+            if (us == "none") hp.upscaler = SD_HIRES_UPSCALER_NONE;
+            else if (us == "latent") hp.upscaler = SD_HIRES_UPSCALER_LATENT;
+            else if (us == "latent_nearest") hp.upscaler = SD_HIRES_UPSCALER_LATENT_NEAREST;
+            else if (us == "latent_nearest_exact") hp.upscaler = SD_HIRES_UPSCALER_LATENT_NEAREST_EXACT;
+            else if (us == "latent_antialiased") hp.upscaler = SD_HIRES_UPSCALER_LATENT_ANTIALIASED;
+            else if (us == "latent_bicubic") hp.upscaler = SD_HIRES_UPSCALER_LATENT_BICUBIC;
+            else if (us == "latent_bicubic_antialiased") hp.upscaler = SD_HIRES_UPSCALER_LATENT_BICUBIC_ANTIALIASED;
+            else if (us == "lanczos") hp.upscaler = SD_HIRES_UPSCALER_LANCZOS;
+            else if (us == "nearest") hp.upscaler = SD_HIRES_UPSCALER_NEAREST;
+            else if (us == "model") hp.upscaler = SD_HIRES_UPSCALER_MODEL;
+        }
+    }
+    hp.model_path = ss.add(h, "modelPath");
+    hp.scale = static_cast<float>(GetDouble(h, "scale", hp.scale));
+    hp.target_width = GetInt(h, "targetWidth", hp.target_width);
+    hp.target_height = GetInt(h, "targetHeight", hp.target_height);
+    hp.steps = GetInt(h, "steps", hp.steps);
+    hp.denoising_strength = static_cast<float>(GetDouble(h, "denoisingStrength", hp.denoising_strength));
+    hp.upscale_tile_size = GetInt(h, "upscaleTileSize", hp.upscale_tile_size);
+    return hp;
 }
 
 static void ExtractLoras(const Napi::Object& obj, StringStore& ss, ArrayStore& as,
@@ -226,7 +273,9 @@ sd_ctx_params_t ToCtxParams(const Napi::Object& opts, StringStore& ss, ArrayStor
     }
 
     p.vae_decode_only = GetBool(opts, "vaeDecodeOnly", p.vae_decode_only);
-    p.free_params_immediately = GetBool(opts, "freeParamsImmediately", p.free_params_immediately);
+    // Override upstream's default of true: we promise context reuse in API.md, and
+    // true makes the second generate_image call assert on the Metal backend (sd.cpp #1298).
+    p.free_params_immediately = GetBool(opts, "freeParamsImmediately", false);
     p.n_threads = GetInt(opts, "nThreads", p.n_threads);
     p.wtype = GetEnum<sd_type_t>(opts, "wtype", p.wtype, str_to_sd_type);
     p.rng_type = GetEnum<rng_type_t>(opts, "rngType", p.rng_type, str_to_rng_type);
@@ -303,7 +352,8 @@ sd_img_gen_params_t ToImgGenParams(const Napi::Object& opts, StringStore& ss, Ar
     p.sample_params = ToSampleParams(opts, ss, as);
     p.pm_params = ToPmParams(opts, ss, as);
     p.vae_tiling_params = ToTilingParams(opts);
-    p.cache = ToCacheParams(opts);
+    p.cache = ToCacheParams(opts, ss);
+    p.hires = ToHiresParams(opts, ss);
 
     return p;
 }
@@ -359,7 +409,7 @@ sd_vid_gen_params_t ToVidGenParams(const Napi::Object& opts, StringStore& ss, Ar
     }
 
     p.vae_tiling_params = ToTilingParams(opts);
-    p.cache = ToCacheParams(opts);
+    p.cache = ToCacheParams(opts, ss);
 
     return p;
 }

@@ -3,7 +3,7 @@ npm/
 src/cpp/
 deps/
 test/
-smoke.js
+smoke*.js
 docs/
 .github/
 .DS_Store

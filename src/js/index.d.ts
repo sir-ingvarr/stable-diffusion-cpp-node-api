@@ -75,7 +75,19 @@ export type LogLevel = 0 | 1 | 2 | 3; // debug, info, warn, error
 
 export type LoraApplyMode = 'auto' | 'immediately' | 'at_runtime';
 
-export type CacheMode = 'disabled' | 'easycache' | 'ucache' | 'dbcache' | 'taylorseer' | 'cachedit';
+export type CacheMode = 'disabled' | 'easycache' | 'ucache' | 'dbcache' | 'taylorseer' | 'cachedit' | 'spectrum';
+
+export type HiresUpscaler =
+    | 'none'
+    | 'latent'
+    | 'latent_nearest'
+    | 'latent_nearest_exact'
+    | 'latent_antialiased'
+    | 'latent_bicubic'
+    | 'latent_bicubic_antialiased'
+    | 'lanczos'
+    | 'nearest'
+    | 'model';
 
 // --- Data interfaces ---
 
@@ -138,7 +150,27 @@ export interface CacheParams {
     maxContinuousCachedSteps?: number;
     taylorseerNDerivatives?: number;
     taylorseerSkipInterval?: number;
+    scmMask?: string;
     scmPolicyDynamic?: boolean;
+    spectrumW?: number;
+    spectrumM?: number;
+    spectrumLam?: number;
+    spectrumWindowSize?: number;
+    spectrumFlexWindow?: number;
+    spectrumWarmupSteps?: number;
+    spectrumStopPercent?: number;
+}
+
+export interface HiresParams {
+    enabled?: boolean;
+    upscaler?: HiresUpscaler;
+    modelPath?: string;
+    scale?: number;
+    targetWidth?: number;
+    targetHeight?: number;
+    steps?: number;
+    denoisingStrength?: number;
+    upscaleTileSize?: number;
 }
 
 export interface TilingParams {
@@ -229,6 +261,7 @@ export interface ImageGenerationOptions extends AbortableOptions {
     photoMaker?: PhotoMakerParams;
     vaeTiling?: TilingParams;
     cache?: CacheParams;
+    hires?: HiresParams;
     loras?: LoraDefinition[];
 }
 
