@@ -1,0 +1,32 @@
+Subject: SD3 conditioner: 1D pooled_g zero fallback when clip_g is missing
+
+The sd::Tensor migration in upstream commit f16a110 ("refactor: migrate
+generation pipeline to sd::Tensor") accidentally inflated the rank of the
+zero fallback for missing clip_g pooled output:
+
+  pre-refactor (faabc5ad):  ggml_new_tensor_1d(... 1280)        — rank 1
+  post-refactor (f16a110):  sd::Tensor<float>::zeros({1280, 1}) — rank 2
+
+The working path (real clip_g present) returns rank-1 pooled output of shape
+[1280]. When clip_g is missing and clip_l is real, the subsequent
+sd::ops::concat(pooled_l, pooled_g, 0) hits a rank mismatch:
+"Tensor concat requires same rank: lhs_dim=1, rhs_dim=2".
+
+This patch restores the original rank-1 fallback. Drop this file when
+upstream merges the equivalent fix.
+
+Tracking: <upstream issue/PR url here once filed>
+
+diff --git a/src/conditioner.hpp b/src/conditioner.hpp
+index 9f4d455..8309dc1 100644
+--- a/src/conditioner.hpp
++++ b/src/conditioner.hpp
+@@ -980,7 +980,7 @@ struct SD3CLIPEmbedder : public Conditioner {
+             } else {
+                 chunk_hidden_states_g = sd::Tensor<float>::zeros({1280, static_cast<int64_t>(chunk_len), 1});
+                 if (chunk_idx == 0) {
+-                    pooled_g = sd::Tensor<float>::zeros({1280, 1});
++                    pooled_g = sd::Tensor<float>::zeros({1280});
+                 }
+             }
+

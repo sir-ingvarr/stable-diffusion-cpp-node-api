@@ -275,7 +275,7 @@ export interface ConvertOptions extends AbortableOptions {
 export type SDVersionSlug =
     | 'sd1' | 'sd1_inpaint' | 'sd1_pix2pix' | 'sd1_tiny_unet'
     | 'sd2' | 'sd2_inpaint' | 'sd2_tiny_unet'
-    | 'sdxs'
+    | 'sdxs_512_ds' | 'sdxs_09'
     | 'sdxl' | 'sdxl_inpaint' | 'sdxl_pix2pix' | 'sdxl_vega' | 'sdxl_ssd1b'
     | 'svd'
     | 'sd3'

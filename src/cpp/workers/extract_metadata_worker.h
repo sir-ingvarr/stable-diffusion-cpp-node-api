@@ -147,7 +147,8 @@ class ExtractMetadataWorker : public Napi::AsyncWorker {
             case VERSION_SD2: return "sd2";
             case VERSION_SD2_INPAINT: return "sd2_inpaint";
             case VERSION_SD2_TINY_UNET: return "sd2_tiny_unet";
-            case VERSION_SDXS: return "sdxs";
+            case VERSION_SDXS_512_DS: return "sdxs_512_ds";
+            case VERSION_SDXS_09: return "sdxs_09";
             case VERSION_SDXL: return "sdxl";
             case VERSION_SDXL_INPAINT: return "sdxl_inpaint";
             case VERSION_SDXL_PIX2PIX: return "sdxl_pix2pix";
@@ -181,7 +182,8 @@ class ExtractMetadataWorker : public Napi::AsyncWorker {
             case VERSION_SD2: return "SD 2.x";
             case VERSION_SD2_INPAINT: return "SD 2.x Inpaint";
             case VERSION_SD2_TINY_UNET: return "SD 2.x Tiny UNet";
-            case VERSION_SDXS: return "SDXS";
+            case VERSION_SDXS_512_DS: return "SDXS-512-DS";
+            case VERSION_SDXS_09: return "SDXS-09";
             case VERSION_SDXL: return "SDXL";
             case VERSION_SDXL_INPAINT: return "SDXL Inpaint";
             case VERSION_SDXL_PIX2PIX: return "SDXL Instruct-Pix2Pix";
