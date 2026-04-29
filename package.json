@@ -19,7 +19,8 @@
         "clean": "cmake-js clean",
         "test": "node test/basic.js",
         "smoke": "node smoke.js",
-        "sync-versions": "node scripts/sync-versions.js"
+        "sync-versions": "node scripts/sync-versions.js",
+        "version": "node scripts/sync-versions.js && git add npm/*/package.json package.json"
     },
     "keywords": [
         "stable-diffusion",
