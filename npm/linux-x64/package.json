@@ -1,6 +1,6 @@
 {
     "name": "@stable-diffusion-cpp-node-api/linux-x64",
-    "version": "0.12.1",
+    "version": "0.12.2",
     "description": "stable-diffusion-cpp-node-api native binary for Linux x64",
     "os": [
         "linux"
