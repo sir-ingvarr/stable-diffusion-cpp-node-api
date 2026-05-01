@@ -14,6 +14,7 @@
         "patches": "node scripts/apply-patches.js",
         "patches:check": "node scripts/apply-patches.js --check",
         "build": "npm run patches && cmake-js compile --release",
+        "build:ci": "node scripts/apply-patches.js --strict && cmake-js compile --release",
         "build:debug": "npm run patches && cmake-js compile --debug",
         "rebuild": "npm run patches && cmake-js rebuild --release",
         "clean": "cmake-js clean",
