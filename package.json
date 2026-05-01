@@ -1,6 +1,6 @@
 {
     "name": "stable-diffusion-cpp-node-api",
-    "version": "0.11.0",
+    "version": "0.12.0",
     "description": "Node.js N-API bindings for stable-diffusion.cpp — run Stable Diffusion, SDXL, SD3, FLUX, and Wan video models natively",
     "main": "src/js/index.js",
     "types": "src/js/index.d.ts",
@@ -52,9 +52,9 @@
         "node-addon-api": "^8.3.1"
     },
     "optionalDependencies": {
-        "@stable-diffusion-cpp-node-api/darwin-arm64": "0.11.0",
-        "@stable-diffusion-cpp-node-api/darwin-x64": "0.11.0",
-        "@stable-diffusion-cpp-node-api/linux-x64": "0.11.0",
-        "@stable-diffusion-cpp-node-api/win32-x64": "0.11.0"
+        "@stable-diffusion-cpp-node-api/darwin-arm64": "0.12.0",
+        "@stable-diffusion-cpp-node-api/darwin-x64": "0.12.0",
+        "@stable-diffusion-cpp-node-api/linux-x64": "0.12.0",
+        "@stable-diffusion-cpp-node-api/win32-x64": "0.12.0"
     }
 }
