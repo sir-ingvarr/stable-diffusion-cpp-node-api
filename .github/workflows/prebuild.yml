@@ -31,6 +31,18 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
+      # Patches are committed with LF line endings (generated on macOS / Linux).
+      # On Windows runners core.autocrlf defaults to true, which converts the
+      # submodule's .cpp/.hpp files to CRLF on checkout — patches then fail to
+      # apply because the context lines don't match. Force LF everywhere
+      # before any checkout happens.
+      - name: Disable CRLF conversion (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
       - uses: actions/checkout@v4
         with:
           submodules: recursive
