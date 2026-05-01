@@ -17,14 +17,9 @@ const sd = require('./src/js/index');
 const RUNS = [
     {
         prompt: 'a photograph of a cat sitting on a windowsill, golden hour lighting, 8k',
-        seed: 42,
-        outputPath: 'smoke_output_1.ppm',
-    },
-    {
-        prompt: 'a photograph of a red fox in a snowy forest, soft morning light, 8k',
-        seed: 1337,
-        outputPath: 'smoke_output_2.ppm',
-    },
+        seed: -1,
+        outputPath: 'smoke_output_{n}.ppm',
+    }
 ];
 
 const NEGATIVE_PROMPT = 'blurry, low quality, distorted';
@@ -125,8 +120,8 @@ async function main() {
     console.log('');
 
     // Run two subsequent generations on the same context.
-    for (let r = 0; r < RUNS.length; r++) {
-        const run = RUNS[r];
+    for (let r = 0; r < 10; r++) {
+        const run = RUNS[0];
         console.log(`── Run ${r + 1}/${RUNS.length} ──────────────────────────────`);
         console.log(`Generating ${BATCH_COUNT} image(s) at ${WIDTH}x${HEIGHT}, ${SAMPLE_STEPS} steps, seed=${run.seed}`);
         console.log(`Prompt: "${run.prompt}"`);
@@ -156,7 +151,7 @@ async function main() {
         if (img.data.length !== expected) {
             console.warn(`WARNING: data size mismatch! Expected ${expected} bytes (${img.width}x${img.height}x${img.channel}), got ${img.data.length}`);
         }
-        writePPM(run.outputPath, img);
+        writePPM(run.outputPath.replace('{n}', `${r}`), img);
         console.log(`Saved ${img.width}x${img.height}x${img.channel} image to ${run.outputPath} (${img.data.length} bytes)`);
         console.log('');
     }

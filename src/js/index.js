@@ -2,36 +2,85 @@ const loadBinding = require('./load-bindings');
 
 const native = loadBinding();
 
-// generateImage / generateVideo / upscale: hard cancel at the next
-// sampling-step boundary. native.abort() sets a global flag that the
-// native progress callback checks; when set, it throws a C++
-// exception that unwinds through stable-diffusion.cpp back to the
-// worker. Cancellation takes effect at the next step, not instantly.
+// withAbortSignal: wraps a native promise with abort handling.
 //
-// create() / convert(): abort has no native effect (soft cancel). The
-// outer Promise still rejects immediately, but the underlying load /
-// conversion continues to completion and its result is discarded.
-function withAbortSignal(promise, signal) {
+// abortFn is the cancellation entry point — typically the per-ctx
+// `nativeCtx.abort()` method. Omit it for soft-cancel callers
+// (create / convert) that have no per-ctx target to signal.
+//
+// hardCancel:
+//   true  — generateImage / generateVideo / upscale. The wrapper waits
+//           for the native worker to fully unwind before settling, so
+//           when `await` returns, no native work is in flight on this
+//           ctx. (stable-diffusion.cpp is not thread-safe per ctx, so
+//           this matters for chaining the next op.)
+//   false — create / convert. Soft cancel: reject the wrapper Promise
+//           immediately and let the native work continue in the
+//           background; its result is discarded.
+function withAbortSignal(promise, signal, hardCancel = false, abortFn = () => {}) {
     if (!signal) return promise;
+
+    const abortReason = () => signal.reason ?? new DOMException('The operation was aborted.', 'AbortError');
+
     if (signal.aborted) {
-        native.abort();
-        return Promise.reject(signal.reason ?? new DOMException('The operation was aborted.', 'AbortError'));
+        abortFn();
+        if (!hardCancel) return Promise.reject(abortReason());
+        return promise.then(
+            () => { throw abortReason(); },
+            () => { throw abortReason(); },
+        );
     }
+
     return new Promise((resolve, reject) => {
+        let aborted = false;
         const onAbort = () => {
-            native.abort();
-            reject(signal.reason ?? new DOMException('The operation was aborted.', 'AbortError'));
+            aborted = true;
+            abortFn();
+            if (!hardCancel) {
+                signal.removeEventListener('abort', onAbort);
+                reject(abortReason());
+            }
         };
         signal.addEventListener('abort', onAbort, { once: true });
         promise.then(
-            (v) => { signal.removeEventListener('abort', onAbort); resolve(v); },
-            (e) => { signal.removeEventListener('abort', onAbort); reject(e); },
+            (v) => {
+                signal.removeEventListener('abort', onAbort);
+                if (aborted) reject(abortReason());
+                else resolve(v);
+            },
+            (e) => {
+                signal.removeEventListener('abort', onAbort);
+                if (aborted) reject(abortReason());
+                else reject(e);
+            },
         );
     });
 }
 
+// Per-ctx serialization. stable-diffusion.cpp is not thread-safe within
+// one sd_ctx_t, so two concurrent generateImage / generateVideo / upscale
+// calls on the same ctx would corrupt internal state. We chain each
+// abortable call through a per-ctx Promise queue so they run one at a
+// time, even if the caller doesn't await between them.
+//
+// Aborting a queued-but-not-yet-running op short-circuits with an
+// AbortError before any native work is queued — leaving previously-
+// running ops alone.
+function chainAbortable(ctx, signal, runOnce) {
+    const abortReason = () => signal?.reason ?? new DOMException('The operation was aborted.', 'AbortError');
+    const next = ctx._queue.then(() => {
+        if (signal?.aborted) return Promise.reject(abortReason());
+        return runOnce();
+    });
+    // Anchor the queue on the settled outcome regardless of resolve/reject,
+    // so a thrown op doesn't poison subsequent queued ops.
+    ctx._queue = next.then(() => {}, () => {});
+    return next;
+}
+
 class StableDiffusionContext {
     #native;
+    _queue = Promise.resolve();
 
     /** @internal — use StableDiffusionContext.create() */
     constructor(nativeCtx) {
@@ -55,9 +104,12 @@ class StableDiffusionContext {
      * @param {object} options
      * @returns {Promise<Array<{width: number, height: number, channel: number, data: Buffer}>>}
      */
-    async generateImage(options) {
+    generateImage(options) {
         const { signal, ...opts } = options || {};
-        return withAbortSignal(this.#native.generateImage(opts), signal);
+        const n = this.#native;
+        return chainAbortable(this, signal, () =>
+            withAbortSignal(n.generateImage(opts), signal, true, () => n.abort()),
+        );
     }
 
     /**
@@ -65,9 +117,12 @@ class StableDiffusionContext {
      * @param {object} options
      * @returns {Promise<Array<{width: number, height: number, channel: number, data: Buffer}>>}
      */
-    async generateVideo(options) {
+    generateVideo(options) {
         const { signal, ...opts } = options || {};
-        return withAbortSignal(this.#native.generateVideo(opts), signal);
+        const n = this.#native;
+        return chainAbortable(this, signal, () =>
+            withAbortSignal(n.generateVideo(opts), signal, true, () => n.abort()),
+        );
     }
 
     /**
@@ -88,8 +143,21 @@ class StableDiffusionContext {
     }
 
     /**
-     * Release the context. Any in-flight work continues to completion
-     * on its own and releases the native context when it finishes.
+     * Cancel any in-flight or queued generateImage / generateVideo
+     * call on this context. Takes effect at the next cancellation
+     * checkpoint inside the running op (typically within a fraction of
+     * a second). Queued ops that have not yet started reject
+     * immediately with AbortError.
+     */
+    abort() {
+        this.#native.abort();
+    }
+
+    /**
+     * Release the context. Signals any in-flight generateImage /
+     * generateVideo on this ctx to abort at the next cancellation
+     * checkpoint, then drops the wrapper's reference. The native ctx
+     * is freed once the last reference (worker or wrapper) drops.
      */
     close() {
         this.#native.close();
@@ -106,6 +174,7 @@ class StableDiffusionContext {
 
 class UpscalerContext {
     #native;
+    _queue = Promise.resolve();
 
     /** @internal — use UpscalerContext.create() */
     constructor(nativeCtx) {
@@ -130,9 +199,12 @@ class UpscalerContext {
      * @param {{ signal?: AbortSignal }} [options]
      * @returns {Promise<{width: number, height: number, channel: number, data: Buffer}>}
      */
-    async upscale(image, upscaleFactor = 4, options) {
+    upscale(image, upscaleFactor = 4, options) {
         const { signal } = options || {};
-        return withAbortSignal(this.#native.upscale(image, upscaleFactor), signal);
+        const n = this.#native;
+        return chainAbortable(this, signal, () =>
+            withAbortSignal(n.upscale(image, upscaleFactor), signal, true, () => n.abort()),
+        );
     }
 
     /**
@@ -141,6 +213,13 @@ class UpscalerContext {
      */
     getUpscaleFactor() {
         return this.#native.getUpscaleFactor();
+    }
+
+    /**
+     * Cancel any in-flight or queued upscale call on this context.
+     */
+    abort() {
+        this.#native.abort();
     }
 
     /**
@@ -173,7 +252,6 @@ module.exports = {
     setLogCallback: native.setLogCallback,
     setProgressCallback: native.setProgressCallback,
     setPreviewCallback: native.setPreviewCallback,
-    abort: native.abort,
     getSystemInfo: native.getSystemInfo,
     getNumPhysicalCores: native.getNumPhysicalCores,
     version: native.version,

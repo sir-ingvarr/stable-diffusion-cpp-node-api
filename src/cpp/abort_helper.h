@@ -5,18 +5,21 @@
 
 namespace AbortHelper {
 
-// Global flag. Set from JS thread via native.abort(); checked from worker
-// threads inside the progress callback. Since stable-diffusion.cpp
-// processes one generation at a time per sd_ctx, a single global flag
-// is sufficient — if two workers run concurrently both will abort.
-inline std::atomic<bool> abort_requested{false};
+// Per-ctx cancellation state. Owned by a StableDiffusionContext or
+// UpscalerContext (one per native sd_ctx_t / upscaler_ctx_t) and held
+// alongside the ctx by in-flight workers, so two contexts can be
+// cancelled independently.
+struct AbortState {
+    std::atomic<bool> requested{false};
+};
 
-// Enabled per-thread for operations where mid-run cancellation is safe
-// (generate_image, generate_video, upscale). Left disabled during
-// context creation since the model-loading path has not been audited
-// for exception safety. When disabled, an abort request is silently
-// ignored at the native layer (the JS Promise still rejects via
-// withAbortSignal — soft-cancel fallback for that operation).
+// Pointer to the AbortState the worker currently running on this thread
+// is watching. Set by Scope ctor, cleared by Scope dtor.
+inline thread_local AbortState* current = nullptr;
+
+// Whether the current thread is inside an abortable operation. Disabled
+// during context creation since model loading has not been audited for
+// exception safety.
 inline thread_local bool throw_on_abort{false};
 
 class AbortException : public std::exception {
@@ -24,36 +27,48 @@ class AbortException : public std::exception {
     const char* what() const noexcept override { return "Operation aborted"; }
 };
 
-inline void requestAbort() {
-    abort_requested.store(true, std::memory_order_release);
+inline void requestAbort(AbortState& state) {
+    state.requested.store(true, std::memory_order_release);
 }
 
-inline void clearAbort() {
-    abort_requested.store(false, std::memory_order_release);
+inline void clearAbort(AbortState& state) {
+    state.requested.store(false, std::memory_order_release);
 }
 
-// RAII guard that enables abort-throwing on the current thread for the
-// scope of one worker operation, and clears the global flag on entry.
+// RAII guard that points the worker thread at a specific ctx's
+// AbortState for the duration of one operation. Note we deliberately
+// do NOT clear `state.requested` on entry — the JS thread is
+// responsible for clearing it before queueing the worker, since
+// clearing on the worker thread races with abort() calls landing
+// between Queue() and Execute().
 class Scope {
   public:
-    Scope() {
-        clearAbort();
+    explicit Scope(AbortState& state) {
+        current = &state;
         throw_on_abort = true;
     }
     ~Scope() {
         throw_on_abort = false;
-        clearAbort();
+        if (current) {
+            // Clear so a leftover abort from the run that just ended
+            // doesn't trip the next op's first checkpoint. The JS
+            // thread also clears before queueing the next op, so this
+            // is belt-and-suspenders.
+            clearAbort(*current);
+            current = nullptr;
+        }
     }
     Scope(const Scope&) = delete;
     Scope& operator=(const Scope&) = delete;
 };
 
 // Called from the C progress callback on the worker thread. If abort
-// was requested and we're inside a Scope, throws AbortException which
-// unwinds through stable-diffusion.cpp (running destructors) back to
-// the worker's try/catch in Execute().
+// was requested on this thread's current ctx, throws AbortException
+// which unwinds through stable-diffusion.cpp back to the worker's
+// try/catch in Execute().
 inline void throwIfAborted() {
-    if (throw_on_abort && abort_requested.load(std::memory_order_acquire)) {
+    if (throw_on_abort && current &&
+        current->requested.load(std::memory_order_acquire)) {
         throw AbortException();
     }
 }

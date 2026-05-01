@@ -403,6 +403,18 @@ export class StableDiffusionContext {
     generateVideo(options: VideoGenerationOptions): Promise<SdImage[]>;
     getDefaultSampleMethod(): SampleMethod;
     getDefaultScheduler(sampleMethod?: SampleMethod): Scheduler;
+    /**
+     * Cancel any in-flight or queued generateImage / generateVideo
+     * call on this context. Concurrent calls on a different context
+     * are unaffected.
+     */
+    abort(): void;
+    /**
+     * Cancel any in-flight work on this context, then release the native
+     * resources. Returns immediately; the worker observes the abort at its
+     * next checkpoint and the native ctx is freed when the last reference
+     * (wrapper or worker) drops.
+     */
     close(): void;
     readonly isClosed: boolean;
 }
@@ -412,20 +424,21 @@ export class UpscalerContext {
     static create(options: UpscalerOptions): Promise<UpscalerContext>;
     upscale(image: SdImage, upscaleFactor?: number, options?: UpscaleOptions): Promise<SdImage>;
     getUpscaleFactor(): number;
+    /**
+     * Cancel any in-flight or queued upscale call on this context.
+     * Concurrent calls on a different context are unaffected.
+     */
+    abort(): void;
+    /**
+     * Cancel any in-flight work, then release native resources. See
+     * {@link StableDiffusionContext#close}.
+     */
     close(): void;
     readonly isClosed: boolean;
 }
 
 // --- Free functions ---
 
-/**
- * Cancel any in-flight generate/upscale operation. Takes effect at the
- * next sampling-step boundary (typically within a fraction of a second
- * to a few seconds, depending on step duration). Normally invoked
- * automatically via AbortSignal — call this directly only for the
- * process-wide escape hatch.
- */
-export function abort(): void;
 export function convert(options: ConvertOptions): Promise<boolean>;
 /**
  * Read model metadata (version, components, weight type stats, estimated

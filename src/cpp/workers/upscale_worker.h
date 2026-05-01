@@ -59,11 +59,12 @@ class CreateUpscalerWorker : public Napi::AsyncWorker {
 
 class UpscaleWorker : public Napi::AsyncWorker {
   public:
-    UpscaleWorker(Napi::Env env, UpscalerCtxPtr ctx, const Napi::Object& imgObj,
-                  uint32_t factor, ArrayStore& /*as*/)
+    UpscaleWorker(Napi::Env env, UpscalerCtxPtr ctx, std::shared_ptr<AbortHelper::AbortState> abort_state,
+                  const Napi::Object& imgObj, uint32_t factor, ArrayStore& /*as*/)
         : Napi::AsyncWorker(env),
           deferred_(Napi::Promise::Deferred::New(env)),
           ctx_(std::move(ctx)),
+          abort_state_(std::move(abort_state)),
           factor_(factor) {
         input_ = ImageHelpers::ExtractImage(imgObj, as_);
         result_ = {};
@@ -73,7 +74,7 @@ class UpscaleWorker : public Napi::AsyncWorker {
 
     void Execute() override {
         try {
-            AbortHelper::Scope abort_scope;
+            AbortHelper::Scope abort_scope(*abort_state_);
             result_ = upscale(ctx_.get(), input_, factor_);
             if (!result_.data) {
                 SetError("Upscaling failed");
@@ -104,6 +105,7 @@ class UpscaleWorker : public Napi::AsyncWorker {
   private:
     Napi::Promise::Deferred deferred_;
     UpscalerCtxPtr ctx_;
+    std::shared_ptr<AbortHelper::AbortState> abort_state_;
     sd_image_t input_;
     uint32_t factor_;
     sd_image_t result_;

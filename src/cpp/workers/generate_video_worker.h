@@ -12,10 +12,11 @@
 
 class GenerateVideoWorker : public Napi::AsyncWorker {
   public:
-    GenerateVideoWorker(Napi::Env env, SdCtxPtr ctx, const Napi::Object& opts)
+    GenerateVideoWorker(Napi::Env env, SdCtxPtr ctx, AbortStatePtr abort_state, const Napi::Object& opts)
         : Napi::AsyncWorker(env),
           deferred_(Napi::Promise::Deferred::New(env)),
           ctx_(std::move(ctx)),
+          abort_state_(std::move(abort_state)),
           result_frames_(nullptr),
           num_frames_(0) {
         params_ = ParamsConverter::ToVidGenParams(opts, ss_, as_);
@@ -25,7 +26,7 @@ class GenerateVideoWorker : public Napi::AsyncWorker {
 
     void Execute() override {
         try {
-            AbortHelper::Scope abort_scope;
+            AbortHelper::Scope abort_scope(*abort_state_);
             result_frames_ = generate_video(ctx_.get(), &params_, &num_frames_);
             if (!result_frames_) {
                 SetError("Video generation failed");
@@ -73,6 +74,7 @@ class GenerateVideoWorker : public Napi::AsyncWorker {
   private:
     Napi::Promise::Deferred deferred_;
     SdCtxPtr ctx_;
+    AbortStatePtr abort_state_;
     sd_vid_gen_params_t params_;
     StringStore ss_;
     ArrayStore as_;

@@ -5,6 +5,8 @@
 
 #include <memory>
 
+#include "abort_helper.h"
+
 using UpscalerCtxPtr = std::shared_ptr<upscaler_ctx_t>;
 
 class UpscalerContext : public Napi::ObjectWrap<UpscalerContext> {
@@ -19,8 +21,10 @@ class UpscalerContext : public Napi::ObjectWrap<UpscalerContext> {
 
     Napi::Value Upscale(const Napi::CallbackInfo& info);
     Napi::Value GetUpscaleFactor(const Napi::CallbackInfo& info);
+    void Abort(const Napi::CallbackInfo& info);
     void Close(const Napi::CallbackInfo& info);
     Napi::Value IsClosed(const Napi::CallbackInfo& info);
 
     UpscalerCtxPtr ctx_;
+    std::shared_ptr<AbortHelper::AbortState> abort_state_;
 };

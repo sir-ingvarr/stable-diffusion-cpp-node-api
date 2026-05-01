@@ -110,9 +110,11 @@ Edit the constants at the top of `smoke.js` to change prompt, dimensions, steps,
 | `ctx.generateVideo(opts)` | Text/image to video frames, returns `Promise<SdImage[]>` |
 | `ctx.getDefaultSampleMethod()` | Default sampler for loaded model |
 | `ctx.getDefaultScheduler(method?)` | Default scheduler for sampler |
-| `ctx.close()` | Free native resources |
+| `ctx.abort()` | Cancel any in-flight or queued generate call on this ctx |
+| `ctx.close()` | Cancel in-flight work and free native resources |
 | `UpscalerContext.create(opts)` | Load ESRGAN model, returns `Promise<UpscalerContext>` |
 | `upscaler.upscale(image, factor?)` | Upscale an image, returns `Promise<SdImage>` |
+| `upscaler.abort()` | Cancel any in-flight or queued upscale call on this ctx |
 | `convert(opts)` | Convert model format, returns `Promise<boolean>` |
 | `extractMetaData(path)` | Read model header (version, components, dtype stats) without loading weights, returns `Promise<ModelMetadata>` |
 | `preprocessCanny(image, opts?)` | Canny edge detection (sync, in-place) |

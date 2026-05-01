@@ -1,0 +1,49 @@
+Subject: ggml_extend: cancellation checkpoint at the top of compute()
+
+Adds a single `pretty_progress(0, 0, 0)` call at the entry to the
+GGMLRunner `compute()` template. Since every model runner (CLIP, T5,
+UNet, VAE, ControlNet, ESRGAN, ...) goes through this template, this
+turns the entire heavy-compute path into a cancellation point — not
+just the sampling-step boundary the upstream `pretty_progress` calls
+already cover.
+
+Why this works as-is:
+
+  - `pretty_progress(0, 0, 0)` with no progress callback registered
+    bails on the `step == 0` early-return in util.cpp's pretty_progress
+    body. No spurious stdout.
+
+  - With a callback registered, the callback is invoked with
+    (step=0, steps=0, time=0). node-stable-diffusion-cpp's CCallback
+    runs its abort check unconditionally and then drops the (0,0,0)
+    sentinel before dispatching to JS, so the JS-side progress feed
+    stays clean — only real sampler/VAE-tile events surface.
+
+This is the minimum invasive change that makes:
+  - conditioning (CLIP / T5 / clip_g chunks) cancellable
+  - tokenizer/embedder forward passes cancellable
+  - VAE encode (img2img init) cancellable
+  - upscaler/ESRGAN cancellable
+  - every per-step cond/uncond/skip-layer compute cancellable
+
+…all by adding cancellation latency of "one in-flight ggml graph
+compute" everywhere instead of "one sampling step on the diffusion
+model" only.
+
+Tracking: <upstream issue/PR url here once filed>
+
+diff --git a/src/ggml_extend.hpp b/src/ggml_extend.hpp
+--- a/src/ggml_extend.hpp
++++ b/src/ggml_extend.hpp
+@@ -2139,6 +2139,11 @@
+                                          int n_threads,
+                                          bool free_compute_buffer_immediately,
+                                          bool no_return = false) {
++        // Cancellation checkpoint. With the host's progress callback
++        // registered, this drives the abort check inside the cb without
++        // surfacing as a real progress event (host filters steps==0).
++        // Without a callback, pretty_progress short-circuits on step==0.
++        pretty_progress(0, 0, 0);
+         if (!offload_params_to_runtime_backend()) {
+             LOG_ERROR("%s offload params to runtime backend failed", get_desc().c_str());
+             return std::nullopt;

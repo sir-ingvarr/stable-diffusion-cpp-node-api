@@ -1,5 +1,6 @@
 #include "upscaler_context.h"
 
+#include "abort_helper.h"
 #include "helpers/params_converter.h"
 #include "workers/upscale_worker.h"
 
@@ -9,6 +10,7 @@ Napi::Object UpscalerContext::Init(Napi::Env env, Napi::Object exports) {
     Napi::Function func = DefineClass(env, "UpscalerContext", {
         InstanceMethod<&UpscalerContext::Upscale>("upscale"),
         InstanceMethod<&UpscalerContext::GetUpscaleFactor>("getUpscaleFactor"),
+        InstanceMethod<&UpscalerContext::Abort>("abort"),
         InstanceMethod<&UpscalerContext::Close>("close"),
         InstanceAccessor<&UpscalerContext::IsClosed>("isClosed"),
         StaticMethod<&UpscalerContext::Create>("create"),
@@ -28,6 +30,7 @@ UpscalerContext::UpscalerContext(const Napi::CallbackInfo& info)
         ctx_ = UpscalerCtxPtr(raw, [](upscaler_ctx_t* c) {
             if (c) free_upscaler_ctx(c);
         });
+        abort_state_ = std::make_shared<AbortHelper::AbortState>();
         return;
     }
     Napi::TypeError::New(info.Env(), "Use UpscalerContext.create() instead of new")
@@ -74,7 +77,11 @@ Napi::Value UpscalerContext::Upscale(const Napi::CallbackInfo& info) {
     }
 
     ArrayStore as;
-    auto* worker = new UpscaleWorker(env, ctx_, info[0].As<Napi::Object>(), factor, as);
+    // See note in StableDiffusionContext::GenerateImage — clear on JS thread,
+    // not worker thread, so an abort issued between Queue() and Execute()
+    // isn't wiped by the worker's Scope ctor.
+    AbortHelper::clearAbort(*abort_state_);
+    auto* worker = new UpscaleWorker(env, ctx_, abort_state_, info[0].As<Napi::Object>(), factor, as);
     auto promise = worker->Deferred().Promise();
     worker->Queue();
     return promise;
@@ -89,7 +96,13 @@ Napi::Value UpscalerContext::GetUpscaleFactor(const Napi::CallbackInfo& info) {
     return Napi::Number::New(env, get_upscale_factor(ctx_.get()));
 }
 
+void UpscalerContext::Abort(const Napi::CallbackInfo& info) {
+    if (abort_state_) AbortHelper::requestAbort(*abort_state_);
+}
+
 void UpscalerContext::Close(const Napi::CallbackInfo& info) {
+    // See note in StableDiffusionContext::Close — signal abort, then drop ref.
+    if (abort_state_) AbortHelper::requestAbort(*abort_state_);
     ctx_.reset();
 }
 

@@ -6,6 +6,7 @@ All async functions return Promises. All heavy operations (model loading, genera
 
 ## Table of contents
 
+- [Cancellation](#cancellation)
 - [Classes](#classes)
   - [StableDiffusionContext](#stablediffusioncontext)
   - [UpscalerContext](#upscalercontext)
@@ -40,6 +41,30 @@ All async functions return Promises. All heavy operations (model loading, genera
   - [ModelMetadata](#modelmetadata)
   - [SDVersionSlug](#sdversionslug)
 - [Enums (string literal types)](#enums)
+
+---
+
+## Cancellation
+
+Every async call accepts an optional `signal: AbortSignal` and every context exposes an `abort()` method. There are two flavors of cancellation depending on the call.
+
+**Hard cancel** — `ctx.generateImage`, `ctx.generateVideo`, `upscaler.upscale`. Aborting reaches the native worker: it throws at the next sampling/compute checkpoint (typically within a fraction of a second), unwinds out of stable-diffusion.cpp, and the returned Promise rejects with `AbortError` only after the worker has fully finished — so when `await` returns, no native work is still running on this ctx.
+
+**Soft cancel** — `StableDiffusionContext.create`, `UpscalerContext.create`, `convert`. The wrapper Promise rejects immediately, but the underlying load/conversion runs to completion in the background and its result is discarded. There's no way to hard-cancel these from the JS side; if you need to drop a partially-loaded model, let the load finish and call `ctx.close()`.
+
+Cancellation is per-ctx — aborting one context does not affect any other context. Calls on the same ctx are serialized in JS, so a queued-but-not-yet-running call rejects immediately with `AbortError` without touching the running one.
+
+```javascript
+const ctrl = new AbortController();
+
+// Pass via options.signal
+const promise = ctx.generateImage({ prompt: '...', signal: ctrl.signal });
+
+// Or via the per-ctx method (cancels whatever is running or queued)
+ctx.abort();
+```
+
+Calling `ctx.close()` implicitly aborts any in-flight work on that ctx — see [`ctx.close()`](#ctxclose).
 
 ---
 
@@ -159,9 +184,25 @@ const scheduler2 = ctx.getDefaultScheduler('euler_a');  // for specific method
 
 ---
 
+#### `ctx.abort()`
+
+Cancel any in-flight or queued `generateImage` / `generateVideo` call on this context. Takes effect at the next cancellation checkpoint inside the running op (typically within a fraction of a second). Queued ops that have not yet started reject immediately with `AbortError`. Calls on other contexts are unaffected.
+
+Equivalent to passing an `AbortSignal` via `options.signal` and calling `.abort()` on its controller — use whichever fits your call site. See [Cancellation](#cancellation).
+
+```javascript
+const promise = ctx.generateImage({ prompt: '...' });
+ctx.abort();
+await promise; // rejects with AbortError
+```
+
+---
+
 #### `ctx.close()`
 
-Free all native resources (model weights, GGML contexts, GPU memory). The context cannot be used after calling `close()`.
+Cancel any in-flight work on this context, then release the native resources (model weights, GGML contexts, GPU memory). The context cannot be used after calling `close()`.
+
+The cancel is asynchronous — `close()` returns immediately, but the running native worker observes the abort at its next checkpoint and unwinds. The native context is freed when the last reference drops (the wrapper or the in-flight worker, whichever finishes last).
 
 ```javascript
 ctx.close();
@@ -198,18 +239,23 @@ const upscaler = await sd.UpscalerContext.create({
 
 ---
 
-#### `upscaler.upscale(image, upscaleFactor?)`
+#### `upscaler.upscale(image, upscaleFactor?, options?)`
 
 Upscale an image on a background thread.
 
 ```javascript
 const result = await upscaler.upscale(inputImage, 4);
 console.log(result.width);  // inputImage.width * 4
+
+// With abort signal
+const ctrl = new AbortController();
+const result = await upscaler.upscale(inputImage, 4, { signal: ctrl.signal });
 ```
 
 **Parameters:**
 - `image` — [`SdImage`](#sdimage) to upscale
 - `upscaleFactor` *(optional, default: 4)* — integer scale factor
+- `options` *(optional)* — object with `signal?: AbortSignal`. See [Cancellation](#cancellation).
 
 **Returns:** `Promise<SdImage>`
 
@@ -223,9 +269,15 @@ Returns the natural upscale factor of the loaded model.
 
 ---
 
+#### `upscaler.abort()`
+
+Cancel any in-flight or queued `upscale` call on this upscaler. Same semantics as [`ctx.abort()`](#ctxabort) — see [Cancellation](#cancellation).
+
+---
+
 #### `upscaler.close()`
 
-Free native resources.
+Cancel any in-flight work, then release native resources. Same semantics as [`ctx.close()`](#ctxclose).
 
 ---
 
@@ -498,6 +550,7 @@ All path fields are optional. At minimum, provide either `modelPath` (for single
 | `chromaUseT5Mask` | `boolean` | `false` | Chroma T5 mask |
 | `chromaT5MaskPad` | `number` | `1` | Chroma T5 mask padding |
 | `qwenImageZeroCondT` | `boolean` | `false` | Qwen-Image zero conditioning |
+| `signal` | `AbortSignal` | — | Soft-cancel the load; see [Cancellation](#cancellation) |
 
 ---
 
@@ -528,6 +581,7 @@ Options for `ctx.generateImage()`.
 | `cache` | [`CacheParams`](#cacheparams) | disabled | Step caching for faster generation |
 | `hires` | [`HiresParams`](#hiresparams) | disabled | Two-pass "Hires. fix" upscale-and-denoise |
 | `loras` | [`LoraDefinition[]`](#loradefinition) | — | LoRA models to apply |
+| `signal` | `AbortSignal` | — | Hard-cancel the generation; see [Cancellation](#cancellation) |
 
 ---
 
@@ -555,6 +609,7 @@ Options for `ctx.generateVideo()`.
 | `vaeTiling` | [`TilingParams`](#tilingparams) | disabled | VAE tiling |
 | `cache` | [`CacheParams`](#cacheparams) | disabled | Step caching |
 | `loras` | [`LoraDefinition[]`](#loradefinition) | — | LoRA models |
+| `signal` | `AbortSignal` | — | Hard-cancel the generation; see [Cancellation](#cancellation) |
 
 ---
 
@@ -717,6 +772,7 @@ Options for `UpscalerContext.create()`.
 | `direct` | `boolean` | `false` | Use direct convolution |
 | `nThreads` | `number` | CPU cores | Number of threads |
 | `tileSize` | `number` | `0` (auto) | Tile size for tiled upscaling |
+| `signal` | `AbortSignal` | — | Soft-cancel the load; see [Cancellation](#cancellation) |
 
 ---
 
@@ -732,6 +788,7 @@ Options for `convert()`.
 | `outputType` | [`SdType`](#sdtype) | auto | Output quantization type |
 | `tensorTypeRules` | `string` | — | Custom tensor type rules |
 | `convertName` | `boolean` | `false` | Convert tensor names |
+| `signal` | `AbortSignal` | — | Soft-cancel the conversion; see [Cancellation](#cancellation) |
 
 ---
 

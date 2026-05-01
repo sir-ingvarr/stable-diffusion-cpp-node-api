@@ -12,10 +12,11 @@
 
 class GenerateImageWorker : public Napi::AsyncWorker {
   public:
-    GenerateImageWorker(Napi::Env env, SdCtxPtr ctx, const Napi::Object& opts)
+    GenerateImageWorker(Napi::Env env, SdCtxPtr ctx, AbortStatePtr abort_state, const Napi::Object& opts)
         : Napi::AsyncWorker(env),
           deferred_(Napi::Promise::Deferred::New(env)),
           ctx_(std::move(ctx)),
+          abort_state_(std::move(abort_state)),
           result_images_(nullptr) {
         params_ = ParamsConverter::ToImgGenParams(opts, ss_, as_);
         batch_count_ = params_.batch_count;
@@ -25,7 +26,7 @@ class GenerateImageWorker : public Napi::AsyncWorker {
 
     void Execute() override {
         try {
-            AbortHelper::Scope abort_scope;
+            AbortHelper::Scope abort_scope(*abort_state_);
             result_images_ = generate_image(ctx_.get(), &params_);
             if (!result_images_) {
                 SetError("Image generation failed");
@@ -73,6 +74,7 @@ class GenerateImageWorker : public Napi::AsyncWorker {
   private:
     Napi::Promise::Deferred deferred_;
     SdCtxPtr ctx_;
+    AbortStatePtr abort_state_;
     sd_img_gen_params_t params_;
     StringStore ss_;
     ArrayStore as_;

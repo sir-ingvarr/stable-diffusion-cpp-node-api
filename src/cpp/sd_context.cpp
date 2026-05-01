@@ -1,5 +1,6 @@
 #include "sd_context.h"
 
+#include "abort_helper.h"
 #include "workers/create_context_worker.h"
 #include "workers/generate_image_worker.h"
 #include "workers/generate_video_worker.h"
@@ -12,6 +13,7 @@ Napi::Object StableDiffusionContext::Init(Napi::Env env, Napi::Object exports) {
         InstanceMethod<&StableDiffusionContext::GenerateVideo>("generateVideo"),
         InstanceMethod<&StableDiffusionContext::GetDefaultSampleMethod>("getDefaultSampleMethod"),
         InstanceMethod<&StableDiffusionContext::GetDefaultScheduler>("getDefaultScheduler"),
+        InstanceMethod<&StableDiffusionContext::Abort>("abort"),
         InstanceMethod<&StableDiffusionContext::Close>("close"),
         InstanceAccessor<&StableDiffusionContext::IsClosed>("isClosed"),
         StaticMethod<&StableDiffusionContext::Create>("create"),
@@ -34,6 +36,7 @@ StableDiffusionContext::StableDiffusionContext(const Napi::CallbackInfo& info)
         ctx_ = SdCtxPtr(raw, [](sd_ctx_t* c) {
             if (c) free_sd_ctx(c);
         });
+        abort_state_ = std::make_shared<AbortHelper::AbortState>();
         return;
     }
 
@@ -67,7 +70,11 @@ Napi::Value StableDiffusionContext::GenerateImage(const Napi::CallbackInfo& info
     }
 
     Napi::Object opts = info[0].As<Napi::Object>();
-    auto* worker = new GenerateImageWorker(env, ctx_, opts);
+    // Wipe stale abort state on the JS thread before queueing — doing it on
+    // the worker thread inside Scope::Scope() races with native.abort() calls
+    // landing between Queue() and Execute() and silently drops them.
+    AbortHelper::clearAbort(*abort_state_);
+    auto* worker = new GenerateImageWorker(env, ctx_, abort_state_, opts);
     auto promise = worker->Deferred().Promise();
     worker->Queue();
     return promise;
@@ -85,7 +92,9 @@ Napi::Value StableDiffusionContext::GenerateVideo(const Napi::CallbackInfo& info
     }
 
     Napi::Object opts = info[0].As<Napi::Object>();
-    auto* worker = new GenerateVideoWorker(env, ctx_, opts);
+    // See note in GenerateImage — clear on JS thread, not worker thread.
+    AbortHelper::clearAbort(*abort_state_);
+    auto* worker = new GenerateVideoWorker(env, ctx_, abort_state_, opts);
     auto promise = worker->Deferred().Promise();
     worker->Queue();
     return promise;
@@ -118,9 +127,16 @@ Napi::Value StableDiffusionContext::GetDefaultScheduler(const Napi::CallbackInfo
     return Napi::String::New(env, sd_scheduler_name(scheduler));
 }
 
+void StableDiffusionContext::Abort(const Napi::CallbackInfo& info) {
+    if (abort_state_) AbortHelper::requestAbort(*abort_state_);
+}
+
 void StableDiffusionContext::Close(const Napi::CallbackInfo& info) {
-    // Drop the wrapper's ref. If workers still hold refs, the native ctx
-    // is freed when the last one completes; otherwise it's freed now.
+    // Signal in-flight workers to abort at the next checkpoint, then drop
+    // the wrapper's ref. The worker holds its own shared_ptr to abort_state_
+    // so the flag stays observable for it; the native ctx is freed when
+    // the last ref (worker or wrapper) drops.
+    if (abort_state_) AbortHelper::requestAbort(*abort_state_);
     ctx_.reset();
 }
 

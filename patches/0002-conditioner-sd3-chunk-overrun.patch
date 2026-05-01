@@ -1,0 +1,77 @@
+Subject: SD3 conditioner: pad shorter tokenizer vectors to chunk_count
+
+`SD3CLIPEmbedder::get_learned_condition_common` derives a single
+`chunk_count` from the longest of clip_l / clip_g / t5 token vectors,
+then iterates that many chunks and slices each tokenizer's tokens with
+`begin + (chunk_idx + 1) * chunk_len`.
+
+Each tokenizer's `pad_tokens` pads independently and T5XXL routinely
+tokenizes longer than CLIP (different vocabulary granularity), so a
+moderately long prompt produces e.g. clip_l_tokens.size() == 77 (1
+chunk) but t5_tokens.size() == 154 (2 chunks). chunk_count becomes 2
+and the second iteration slices clip_l_tokens past .end() — undefined
+behavior reading whatever is in heap memory beyond the vector's storage.
+
+Symptoms:
+  - CPU backend: GGML_ASSERT(i01 < ne01) failure in
+    ggml_compute_forward_get_rows when the garbage int32 lands outside
+    [0, vocab_size).
+  - GPU backends (Metal / Vulkan / CUDA): no bounds check, so the
+    garbage indices return arbitrary embedding rows. The "garbage"
+    depends on heap state and varies per call, producing
+    visually-similar-but-not-identical outputs across runs with the
+    same seed and prompt — i.e. silent non-determinism on long prompts.
+
+Fix: before the loop, extend each tokenizer's tokens vector out to
+`chunk_count * chunk_len` by appending synthesized empty chunks via the
+tokenizer's own `pad_tokens` (with empty input). Each appended chunk
+has the model's normal empty-prompt structure (BOS + EOS + PAD for
+CLIP, EOS + PAD for T5). The diffusion model sees real, in-distribution
+embeddings for the missing-chunk positions instead of literal zero
+vectors — same trick sd-webui's chunked prompt path uses.
+
+Verified deterministic on: M3 Max + Metal + SD3.5 medium with
+prompts up to 5 T5 chunks (~385 tokens) where CLIP is at 4 chunks.
+Previously produced 4-of-5 different outputs on same-context runs
+with seed=42 and a moderately long prompt; with the patch all 5
+runs are byte-identical. Short prompts produce bit-identical output
+to the pre-patch behavior (no regression).
+
+Tracking: <upstream issue/PR url here once filed>
+
+diff --git a/src/conditioner.hpp b/src/conditioner.hpp
+--- a/src/conditioner.hpp
++++ b/src/conditioner.hpp
+@@ -901,6 +901,32 @@ struct SD3CLIPEmbedder : public Conditioner {
+
+         size_t chunk_count = std::max(std::max(clip_l_tokens.size(), clip_g_tokens.size()), t5_tokens.size()) / chunk_len;
+
++        // Each tokenizer's pad_tokens above runs independently, so a long
++        // prompt can give clip_l/clip_g 1 chunk while t5 gets 2+. The loop
++        // below slices each tokens vector with `(chunk_idx + 1) * chunk_len`,
++        // which would read past .end() on the shorter ones — undefined
++        // behavior (silent garbage embeddings on GPU, GGML_ASSERT crash on
++        // CPU). Pre-pad the shorter vectors out to chunk_count * chunk_len
++        // by appending synthesized empty chunks via each tokenizer's own
++        // pad_tokens (BOS+EOS+PAD layout — same structure the model saw
++        // for empty/short prompts during training). Gives in-distribution
++        // embeddings for the missing-chunk positions instead of zeros.
++        auto extend_to_chunk_count = [&](Tokenizer& tokenizer,
++                                         std::vector<int>& tokens,
++                                         std::vector<float>& weights) {
++            while (tokens.size() < chunk_count * chunk_len) {
++                std::vector<int> empty_tokens;
++                std::vector<float> empty_weights;
++                tokenizer.pad_tokens(empty_tokens, &empty_weights, nullptr,
++                                     chunk_len, chunk_len, false);
++                tokens.insert(tokens.end(), empty_tokens.begin(), empty_tokens.end());
++                weights.insert(weights.end(), empty_weights.begin(), empty_weights.end());
++            }
++        };
++        if (clip_l) extend_to_chunk_count(clip_l_tokenizer, clip_l_tokens, clip_l_weights);
++        if (clip_g) extend_to_chunk_count(clip_g_tokenizer, clip_g_tokens, clip_g_weights);
++        if (t5)     extend_to_chunk_count(t5_tokenizer,     t5_tokens,     t5_weights);
++
+         for (int chunk_idx = 0; chunk_idx < chunk_count; chunk_idx++) {
+             // clip_l
+             sd::Tensor<float> chunk_hidden_states_l;

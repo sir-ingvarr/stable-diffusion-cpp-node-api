@@ -1,0 +1,52 @@
+Subject: AYS scheduler: fix broken SD2.x fallthrough that left inputs empty
+
+`AYSScheduler::get_sigmas` was clearly meant to warn for SD2.x and then
+fall through into the SD1.5 branch — the source even has a literal
+`/* fallthrough */` comment between the two cases. But the surrounding
+construct is `if / else if`, not a `switch`, so C++ doesn't fall through:
+when the SD2 branch fires we just log the warning and exit the chain
+with `inputs` still default-constructed (size 0).
+
+Two lines later:
+
+    if ((n + 1) != inputs.size()) {
+        results = log_linear_interpolation(inputs, n + 1);
+    }
+
+`log_linear_interpolation` then runs `linear_space(0.f, 1.f, 0)` — which
+computes `(1.f - 0.f) / (size_t)(0 - 1)`, i.e. `1.f / SIZE_MAX` cast to
+float — and feeds an empty `ref_x` / `ref_y` into `linear_interp`,
+whose binary-search precondition (`ref_x[j+1]` access) reads past the
+end of an empty vector. Crashes the host process on any SD2.x +
+AYS_SCHEDULER request before the first sampling step. Repros from
+node-stable-diffusion-cpp by setting `schedule: 'ays'` on a SD2.1
+context.
+
+Fix: collapse the SD1 and SD2 cases into a single branch that uses the
+SD1.5 noise levels and emits the existing warning when the model is
+SD2 — i.e. honor the original author's stated intent. SD2.x shares
+SD1.5's noise schedule shape (same v-pred-or-eps unet, same training
+sigma_max ≈ 14.6) so the SD1.5 levels are the closest available
+reference, and the warning still tells the user this is best-effort.
+
+Tracking: <upstream issue/PR url here once filed>
+
+diff --git a/src/denoiser.hpp b/src/denoiser.hpp
+--- a/src/denoiser.hpp
++++ b/src/denoiser.hpp
+@@ -174,10 +174,11 @@ struct AYSScheduler : SigmaScheduler {
+         std::vector<float> inputs;
+         std::vector<float> results(n + 1);
+
+-        if (sd_version_is_sd2((SDVersion)version)) {
+-            LOG_WARN("AYS_SCHEDULER not designed for SD2.X models");
+-        } /* fallthrough */
+-        else if (sd_version_is_sd1((SDVersion)version)) {
++        if (sd_version_is_sd1((SDVersion)version) || sd_version_is_sd2((SDVersion)version)) {
++            if (sd_version_is_sd2((SDVersion)version)) {
++                LOG_WARN("AYS_SCHEDULER not designed for SD2.X models, "
++                         "falling back to SD1.5 noise levels");
++            }
+             LOG_INFO("AYS_SCHEDULER using SD1.5 noise levels");
+             inputs = noise_levels[0];
+         } else if (sd_version_is_sdxl((SDVersion)version)) {

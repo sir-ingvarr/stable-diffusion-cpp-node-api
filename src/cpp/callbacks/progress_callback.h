@@ -21,6 +21,12 @@ inline void CCallback(int step, int steps, float time, void* /*data*/) {
     // through stable-diffusion.cpp back to the worker's try/catch.
     AbortHelper::throwIfAborted();
 
+    // Cancel-check sentinel: our patches in stable-diffusion.cpp call
+    // pretty_progress(0, 0, 0) at strategic points (top of compute(),
+    // between conditioner chunks, etc.) purely to drive the abort
+    // check above. Drop those — they don't represent real progress.
+    if (steps <= 0) return;
+
     if (!tsfn) return;
 
     auto* pd = new ProgressData{step, steps, time};
