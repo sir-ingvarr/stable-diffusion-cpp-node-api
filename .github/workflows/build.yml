@@ -19,11 +19,11 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
 
@@ -44,7 +44,7 @@ jobs:
           mkdir -p artifact
           cp "$NODE_FILE" artifact/node_stable_diffusion.node
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ci-binary
           path: artifact/node_stable_diffusion.node

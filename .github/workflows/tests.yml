@@ -26,13 +26,13 @@ jobs:
           echo "::error::Build concluded '${{ github.event.workflow_run.conclusion }}' — tests cannot run."
           exit 1
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           # Tests load the prebuilt binary — no need for the submodule tree.
           submodules: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
 
@@ -43,7 +43,7 @@ jobs:
         run: rm -rf node_modules/@stable-diffusion-cpp-node-api
 
       - name: Download the binary built by the Build workflow
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ci-binary
           run-id: ${{ github.event.workflow_run.id }}
