@@ -17,11 +17,11 @@ upstream merges the equivalent fix.
 
 Tracking: <upstream issue/PR url here once filed>
 
-diff --git a/src/conditioner.hpp b/src/conditioner.hpp
-index 9f4d455..8309dc1 100644
---- a/src/conditioner.hpp
-+++ b/src/conditioner.hpp
-@@ -980,7 +980,7 @@ struct SD3CLIPEmbedder : public Conditioner {
+diff --git a/src/conditioning/conditioner.hpp b/src/conditioning/conditioner.hpp
+index c1aad85..2dfd762 100644
+--- a/src/conditioning/conditioner.hpp
++++ b/src/conditioning/conditioner.hpp
+@@ -1017,7 +1017,7 @@ struct SD3CLIPEmbedder : public Conditioner {
              } else {
                  chunk_hidden_states_g = sd::Tensor<float>::zeros({1280, static_cast<int64_t>(chunk_len), 1});
                  if (chunk_idx == 0) {
@@ -29,4 +29,4 @@ index 9f4d455..8309dc1 100644
 +                    pooled_g = sd::Tensor<float>::zeros({1280});
                  }
              }
-
+ 

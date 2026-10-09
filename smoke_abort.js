@@ -57,7 +57,11 @@ async function main() {
         if (level >= 2) process.stderr.write(text);
     });
     sd.setProgressCallback((data) => {
-        progressCount++;
+        // Since the 2026-10 upstream bump, pretty_progress also reports lazy
+        // tensor-loading and conditioner progress (steps=178/1680/...). Only
+        // sampling-phase events (steps === SAMPLE_STEPS, step > 0) count
+        // toward the abort-latency assertions.
+        if (data.steps === SAMPLE_STEPS && data.step > 0) progressCount++;
         if (onProgress) onProgress(data);
     });
 

@@ -28,7 +28,10 @@ class CreateUpscalerWorker : public Napi::AsyncWorker {
     Napi::Promise::Deferred& Deferred() { return deferred_; }
 
     void Execute() override {
-        ctx_ = new_upscaler_ctx(esrgan_path_.c_str(), offload_, direct_, n_threads_, tile_size_);
+        // The old `offload` bool became backend assignment strings upstream;
+        // map it the same way the CLI compat alias does (params on CPU).
+        ctx_ = new_upscaler_ctx(esrgan_path_.c_str(), direct_, n_threads_, tile_size_,
+                                nullptr, offload_ ? "*=cpu" : nullptr);
         if (!ctx_) {
             SetError("Failed to create upscaler context");
         }
@@ -75,10 +78,20 @@ class UpscaleWorker : public Napi::AsyncWorker {
     void Execute() override {
         try {
             AbortHelper::Scope abort_scope(*abort_state_);
-            result_ = upscale(ctx_.get(), input_, factor_);
-            if (!result_.data) {
+            // upscale() now returns an image array via out-params (bool = success).
+            sd_image_t* images_out = nullptr;
+            int num_out = 0;
+            if (!upscale(ctx_.get(), input_, factor_, &images_out, &num_out) ||
+                num_out < 1 || !images_out) {
+                if (images_out) free_sd_images(images_out, num_out);
+                result_ = {};
                 SetError("Upscaling failed");
+                return;
             }
+            // Single input image → first output is ours; free any extras.
+            result_ = images_out[0];
+            images_out[0].data = nullptr;
+            free_sd_images(images_out, num_out);
         } catch (const AbortHelper::AbortException&) {
             result_ = {};
             SetError("Aborted");

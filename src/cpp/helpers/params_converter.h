@@ -3,13 +3,16 @@
 #include <napi.h>
 #include <stable-diffusion.h>
 
+#include <deque>
 #include <string>
 #include <vector>
 
 // Holds std::string values so that const char* pointers into them remain valid
-// as long as the StringStore is alive.
+// as long as the StringStore is alive. A deque (not a vector) because vector
+// growth moves the strings, which invalidates c_str() for SSO-sized values;
+// deque push_back never relocates existing elements.
 struct StringStore {
-    std::vector<std::string> strings;
+    std::deque<std::string> strings;
 
     const char* add(const Napi::Object& obj, const char* key) {
         if (obj.Has(key)) {

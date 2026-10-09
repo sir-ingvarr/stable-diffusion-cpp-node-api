@@ -31,13 +31,14 @@ reference, and the warning still tells the user this is best-effort.
 
 Tracking: <upstream issue/PR url here once filed>
 
-diff --git a/src/denoiser.hpp b/src/denoiser.hpp
---- a/src/denoiser.hpp
-+++ b/src/denoiser.hpp
-@@ -174,10 +174,11 @@ struct AYSScheduler : SigmaScheduler {
+diff --git a/src/runtime/denoiser.hpp b/src/runtime/denoiser.hpp
+index 02ebe57..3d623c0 100644
+--- a/src/runtime/denoiser.hpp
++++ b/src/runtime/denoiser.hpp
+@@ -186,10 +186,11 @@ struct AYSScheduler : SigmaScheduler {
          std::vector<float> inputs;
          std::vector<float> results(n + 1);
-
+ 
 -        if (sd_version_is_sd2((SDVersion)version)) {
 -            LOG_WARN("AYS_SCHEDULER not designed for SD2.X models");
 -        } /* fallthrough */

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "src/model.h"
+#include "src/model_loader.h"  // ModelLoader (split out of model.h upstream)
 
 class ExtractMetadataWorker : public Napi::AsyncWorker {
   public:

@@ -43,7 +43,8 @@
     "files": [
         "src/js/",
         "LICENSE",
-        "README.md"
+        "README.md",
+        "CHANGELOG.md"
     ],
     "engines": {
         "node": ">=18.0.0"

@@ -394,7 +394,7 @@ Log levels: 0 = DEBUG, 1 = INFO, 2 = WARN, 3 = ERROR.
 
 ### `setProgressCallback(callback)`
 
-Set or clear the global progress callback. Called during sampling steps.
+Set or clear the global progress callback. Called during sampling steps — and, since the 2026-10 upstream bump, also during lazy tensor loading and other long phases (with their own `steps` totals). To track only sampling, filter on `steps` matching your `sampleSteps`, or use `setPreviewCallback` for step-accurate UI.
 
 ```javascript
 sd.setProgressCallback(({ step, steps, time }) => {
@@ -525,31 +525,43 @@ All path fields are optional. At minimum, provide either `modelPath` (for single
 | `photoMakerPath` | `string` | — | PhotoMaker model |
 | `tensorTypeRules` | `string` | — | Custom tensor type override rules |
 | `embeddings` | [`EmbeddingDefinition[]`](#embeddingdefinition) | — | Textual inversion embeddings |
-| `vaeDecodeOnly` | `boolean` | `true` | Only load VAE decoder (saves memory). Set to `false` when using img2img (`initImage` / `strength`), inpainting, ControlNet with a control image, or pixel-space [hires upscalers](#hiresupscaler) (`'lanczos'`, `'nearest'`, `'model'`) — all of these need to encode pixels into latents. |
-| `freeParamsImmediately` | `boolean` | `false` | Free each model component's weights as soon as its stage finishes within a `generateImage` call. Lowers peak VRAM (peak ≈ largest single stage instead of all weights resident) but makes the context **single-use** — a second `generateImage` call would need to reload weights from disk and currently asserts on the Metal backend ([sd.cpp #1298](https://github.com/leejet/stable-diffusion.cpp/issues/1298)). Defaults to `false` so context reuse works out of the box; flip to `true` only if you're memory-constrained and doing one-shot generation. |
+| `vaeDecodeOnly` | `boolean` | — | **Deprecated, no-op** since the 2026-10 upstream bump — the device residency manager loads components on demand. Accepted for back-compat. |
+| `freeParamsImmediately` | `boolean` | — | **Deprecated, no-op** since the 2026-10 upstream bump — weight residency is managed automatically (see `maxVram`, `paramsBackend`). Accepted for back-compat. |
 | `nThreads` | `number` | CPU cores | Number of CPU threads |
 | `wtype` | [`SdType`](#sdtype) | `'count'` (auto) | Weight quantization type override |
 | `rngType` | [`RngType`](#rngtype) | `'cuda'` | Random number generator type |
 | `samplerRngType` | [`RngType`](#rngtype) | auto | Sampler RNG type |
 | `prediction` | [`Prediction`](#prediction) | auto | Noise prediction type |
 | `loraApplyMode` | [`LoraApplyMode`](#loraapplymode) | `'auto'` | When to apply LoRA weights |
-| `offloadParamsToCpu` | `boolean` | `false` | Offload params to CPU (saves GPU memory) |
+| `offloadParamsToCpu` | `boolean` | `false` | **Deprecated** — maps to `paramsBackend: "*=cpu"`. Prefer `paramsBackend`. |
 | `enableMmap` | `boolean` | `false` | Use memory-mapped file I/O |
-| `keepClipOnCpu` | `boolean` | `false` | Keep CLIP encoder on CPU |
-| `keepControlNetOnCpu` | `boolean` | `false` | Keep ControlNet on CPU |
-| `keepVaeOnCpu` | `boolean` | `false` | Keep VAE on CPU |
+| `keepClipOnCpu` | `boolean` | `false` | **Deprecated** — maps to a `te=cpu` entry in `backend`. Prefer `backend`. |
+| `keepControlNetOnCpu` | `boolean` | `false` | **Deprecated** — maps to a `controlnet=cpu` entry in `backend`. Prefer `backend`. |
+| `keepVaeOnCpu` | `boolean` | `false` | **Deprecated** — maps to a `vae=cpu` entry in `backend`. Prefer `backend`. |
+| `backend` | `string` | auto | Runtime backend assignments per module, e.g. `"te=cpu,vae=cpu"` or `"diffusion=cuda0"` (upstream `docs/backend.md`) |
+| `paramsBackend` | `string` | auto | Weight placement assignments, e.g. `"*=cpu"` or `"te=disk"`. Nonempty disables `autoFit`. |
+| `splitMode` | `string` | `"layer"` | Multi-device weight distribution: `"layer"`, `"row"`, or per-module (`"diffusion=row"`) |
+| `maxVram` | `string` | live free VRAM | Per-device GiB budget for managed weights and runner buffers |
+| `autoFit` | `boolean` | `true` | Automatic compute placement |
+| `rpcServers` | `string` | — | Comma-separated ggml RPC server addresses |
+| `tokenizer` | `string` | — | tokenizer.json path or per-encoder assignments (required for PiD / Lens) |
+| `eagerLoad` | `boolean` | `false` | Load all params at model-load time instead of lazily on first use |
+| `disablePrefetch` | `boolean` | `false` | Disable asynchronous next-segment weight prefetch |
+| `conditioningCacheSize` | `number` | `4` | Max cached conditioning entries per context; `0` disables |
+| `sageAttn` | `boolean` | `false` | SageAttention (quantized attention) |
 | `flashAttn` | `boolean` | `false` | Enable flash attention |
 | `diffusionFlashAttn` | `boolean` | `false` | Enable flash attention for diffusion model |
 | `taePreviewOnly` | `boolean` | `false` | Only load TAE for previews |
 | `diffusionConvDirect` | `boolean` | `false` | Use direct convolution in diffusion model |
 | `vaeConvDirect` | `boolean` | `false` | Use direct convolution in VAE |
-| `circularX` | `boolean` | `false` | Circular padding in X (for seamless textures) |
-| `circularY` | `boolean` | `false` | Circular padding in Y |
+| `circularX` | `boolean` | `false` | **Deprecated here** — moved to `generateImage` / `generateVideo` options |
+| `circularY` | `boolean` | `false` | **Deprecated here** — moved to `generateImage` / `generateVideo` options |
 | `forceSdxlVaeConvScale` | `boolean` | `false` | Force SDXL VAE conv scale |
-| `chromaUseDitMask` | `boolean` | `true` | Chroma DiT mask |
-| `chromaUseT5Mask` | `boolean` | `false` | Chroma T5 mask |
-| `chromaT5MaskPad` | `number` | `1` | Chroma T5 mask padding |
-| `qwenImageZeroCondT` | `boolean` | `false` | Qwen-Image zero conditioning |
+| `chromaUseDitMask` | `boolean` | `true` | Maps to model_args `chroma_use_dit_mask=...`; prefer `modelArgs` |
+| `chromaUseT5Mask` | `boolean` | `false` | Maps to model_args `chroma_use_t5_mask=...`; prefer `modelArgs` |
+| `chromaT5MaskPad` | `number` | `1` | Maps to model_args `chroma_t5_mask_pad=...`; prefer `modelArgs` |
+| `qwenImageZeroCondT` | `boolean` | `false` | Maps to model_args `qwen_image_zero_cond_t=...`; prefer `modelArgs` (required `true` for Qwen Image Edit 2511) |
+| `modelArgs` | `string` | — | Extra model args as a key=value list, e.g. `"qwen_image_zero_cond_t=true,chroma_use_dit_mask=false"` |
 | `signal` | `AbortSignal` | — | Soft-cancel the load; see [Cancellation](#cancellation) |
 
 ---

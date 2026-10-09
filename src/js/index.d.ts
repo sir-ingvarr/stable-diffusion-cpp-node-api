@@ -180,6 +180,10 @@ export interface TilingParams {
     targetOverlap?: number;
     relSizeX?: number;
     relSizeY?: number;
+    /** Tile along the temporal axis too (video models). */
+    temporalTiling?: boolean;
+    /** Extra upstream tiling args as a key=value list. */
+    extraTilingArgs?: string;
 }
 
 export interface PhotoMakerParams {
@@ -212,7 +216,9 @@ export interface ContextOptions extends AbortableOptions {
     photoMakerPath?: string;
     tensorTypeRules?: string;
     embeddings?: EmbeddingDefinition[];
+    /** @deprecated No-op since the 2026-10 upstream bump (the device residency manager owns param lifetime). */
     vaeDecodeOnly?: boolean;
+    /** @deprecated No-op since the 2026-10 upstream bump (the device residency manager owns param lifetime). */
     freeParamsImmediately?: boolean;
     nThreads?: number;
     wtype?: SdType;
@@ -220,23 +226,66 @@ export interface ContextOptions extends AbortableOptions {
     samplerRngType?: RngType;
     prediction?: Prediction;
     loraApplyMode?: LoraApplyMode;
+    /** @deprecated Maps to `paramsBackend: "*=cpu"`; prefer `paramsBackend`. */
     offloadParamsToCpu?: boolean;
     enableMmap?: boolean;
+    /** @deprecated Maps to a `te=cpu` entry in `backend`; prefer `backend`. */
     keepClipOnCpu?: boolean;
+    /** @deprecated Maps to a `controlnet=cpu` entry in `backend`; prefer `backend`. */
     keepControlNetOnCpu?: boolean;
+    /** @deprecated Maps to a `vae=cpu` entry in `backend`; prefer `backend`. */
     keepVaeOnCpu?: boolean;
+    /**
+     * Runtime backend assignments per module, e.g. "te=cpu,vae=cpu" or
+     * "diffusion=cuda0". See upstream docs/backend.md.
+     */
+    backend?: string;
+    /**
+     * Parameter (weight) placement assignments, e.g. "*=cpu" or "te=disk".
+     * A nonempty value disables autoFit.
+     */
+    paramsBackend?: string;
+    /** Weight distribution for multi-device modules: "layer" (default), "row", or per-module, e.g. "diffusion=row". */
+    splitMode?: string;
+    /** Optional per-device GiB budget for managed weights/buffers. */
+    maxVram?: string;
+    /** Automatic compute placement (default true upstream). */
+    autoFit?: boolean;
+    /** Comma-separated ggml RPC server addresses. */
+    rpcServers?: string;
+    /** tokenizer.json path or per-encoder assignments; required for PiD and Lens. */
+    tokenizer?: string;
+    /** Load all params at model-load time instead of lazily on first use. */
+    eagerLoad?: boolean;
+    /** Disable asynchronous next-segment weight prefetch. */
+    disablePrefetch?: boolean;
+    /** Max cached conditioning entries per context; 0 disables (upstream default 4). */
+    conditioningCacheSize?: number;
     flashAttn?: boolean;
+    /** SageAttention (quantized attention). */
+    sageAttn?: boolean;
     diffusionFlashAttn?: boolean;
     taePreviewOnly?: boolean;
     diffusionConvDirect?: boolean;
     vaeConvDirect?: boolean;
+    /** @deprecated Moved to per-generation options (ImageGenerationOptions / VideoGenerationOptions). */
     circularX?: boolean;
+    /** @deprecated Moved to per-generation options (ImageGenerationOptions / VideoGenerationOptions). */
     circularY?: boolean;
     forceSdxlVaeConvScale?: boolean;
+    /** Maps to model_args `chroma_use_dit_mask=...`; prefer `modelArgs`. */
     chromaUseDitMask?: boolean;
+    /** Maps to model_args `chroma_use_t5_mask=...`; prefer `modelArgs`. */
     chromaUseT5Mask?: boolean;
+    /** Maps to model_args `chroma_t5_mask_pad=...`; prefer `modelArgs`. */
     chromaT5MaskPad?: number;
+    /** Maps to model_args `qwen_image_zero_cond_t=...`; prefer `modelArgs`. */
     qwenImageZeroCondT?: boolean;
+    /**
+     * Extra model args as a key=value list, e.g.
+     * "qwen_image_zero_cond_t=true,chroma_use_dit_mask=false".
+     */
+    modelArgs?: string;
 }
 
 // --- Generation options ---
@@ -247,8 +296,12 @@ export interface ImageGenerationOptions extends AbortableOptions {
     clipSkip?: number;
     initImage?: SdImage;
     refImages?: SdImage[];
+    /** @deprecated Maps to refImageArgs `resize_before_vae=false` when false; prefer `refImageArgs`. */
     autoResizeRefImage?: boolean;
+    /** @deprecated Maps to refImageArgs `ref_index_mode=increase`; prefer `refImageArgs`. */
     increaseRefIndex?: boolean;
+    /** Reference-image args as a key=value list, e.g. "resize_before_vae=false,ref_index_mode=increase". */
+    refImageArgs?: string;
     maskImage?: SdImage;
     width?: number;
     height?: number;
@@ -258,6 +311,10 @@ export interface ImageGenerationOptions extends AbortableOptions {
     batchCount?: number;
     controlImage?: SdImage;
     controlStrength?: number;
+    /** Seamless tiling along x (moved here from ContextOptions upstream). */
+    circularX?: boolean;
+    /** Seamless tiling along y (moved here from ContextOptions upstream). */
+    circularY?: boolean;
     photoMaker?: PhotoMakerParams;
     vaeTiling?: TilingParams;
     cache?: CacheParams;
@@ -280,7 +337,13 @@ export interface VideoGenerationOptions extends AbortableOptions {
     strength?: number;
     seed?: number;
     videoFrames?: number;
+    /** Target frames per second (model-dependent). */
+    fps?: number;
     vaceStrength?: number;
+    /** Seamless tiling along x. */
+    circularX?: boolean;
+    /** Seamless tiling along y. */
+    circularY?: boolean;
     vaeTiling?: TilingParams;
     cache?: CacheParams;
     loras?: LoraDefinition[];

@@ -6,18 +6,23 @@
 
 namespace ParamsConverter {
 
-static sd_tiling_params_t ToTilingParams(const Napi::Object& obj) {
-    sd_tiling_params_t tp = {false, 0, 0, 0.5f, 0.0f, 0.0f};
+static sd_tiling_params_t ToTilingParams(const Napi::Object& obj, StringStore& ss) {
+    sd_tiling_params_t tp = {};
+    tp.target_overlap = 0.5f;
     if (!obj.Has("vaeTiling")) return tp;
     Napi::Value val = obj.Get("vaeTiling");
     if (!val.IsObject()) return tp;
     Napi::Object t = val.As<Napi::Object>();
     tp.enabled = GetBool(t, "enabled", false);
-    tp.tile_size_x = GetInt(t, "tileSizeX", 0);
-    tp.tile_size_y = GetInt(t, "tileSizeY", 0);
+    tp.temporal_tiling = GetBool(t, "temporalTiling", false);
+    // Upstream renamed tile_size_x/y → _w/_h and rel_size_x/y → _w/_h; the JS
+    // names stay as-is for back-compat.
+    tp.tile_size_w = GetInt(t, "tileSizeX", 0);
+    tp.tile_size_h = GetInt(t, "tileSizeY", 0);
     tp.target_overlap = static_cast<float>(GetDouble(t, "targetOverlap", 0.5));
-    tp.rel_size_x = static_cast<float>(GetDouble(t, "relSizeX", 0.0));
-    tp.rel_size_y = static_cast<float>(GetDouble(t, "relSizeY", 0.0));
+    tp.rel_size_w = static_cast<float>(GetDouble(t, "relSizeX", 0.0));
+    tp.rel_size_h = static_cast<float>(GetDouble(t, "relSizeY", 0.0));
+    tp.extra_tiling_args = ss.add(t, "extraTilingArgs");
     return tp;
 }
 
@@ -272,33 +277,92 @@ sd_ctx_params_t ToCtxParams(const Napi::Object& opts, StringStore& ss, ArrayStor
         }
     }
 
-    p.vae_decode_only = GetBool(opts, "vaeDecodeOnly", p.vae_decode_only);
-    // Override upstream's default of true: we promise context reuse in API.md, and
-    // true makes the second generate_image call assert on the Metal backend (sd.cpp #1298).
-    p.free_params_immediately = GetBool(opts, "freeParamsImmediately", false);
+    // vaeDecodeOnly / freeParamsImmediately were removed from the C API (the
+    // device residency manager now owns param lifetime). Still accepted from
+    // JS for back-compat; they are no-ops.
     p.n_threads = GetInt(opts, "nThreads", p.n_threads);
     p.wtype = GetEnum<sd_type_t>(opts, "wtype", p.wtype, str_to_sd_type);
     p.rng_type = GetEnum<rng_type_t>(opts, "rngType", p.rng_type, str_to_rng_type);
     p.sampler_rng_type = GetEnum<rng_type_t>(opts, "samplerRngType", p.sampler_rng_type, str_to_rng_type);
     p.prediction = GetEnum<prediction_t>(opts, "prediction", p.prediction, str_to_prediction);
     p.lora_apply_mode = GetEnum<lora_apply_mode_t>(opts, "loraApplyMode", p.lora_apply_mode, str_to_lora_apply_mode);
-    p.offload_params_to_cpu = GetBool(opts, "offloadParamsToCpu", p.offload_params_to_cpu);
     p.enable_mmap = GetBool(opts, "enableMmap", p.enable_mmap);
-    p.keep_clip_on_cpu = GetBool(opts, "keepClipOnCpu", p.keep_clip_on_cpu);
-    p.keep_control_net_on_cpu = GetBool(opts, "keepControlNetOnCpu", p.keep_control_net_on_cpu);
-    p.keep_vae_on_cpu = GetBool(opts, "keepVaeOnCpu", p.keep_vae_on_cpu);
+
+    // Backend placement. The old keep*OnCpu / offloadParamsToCpu booleans map
+    // onto the new assignment strings the same way upstream's CLI compat
+    // aliases do (docs/backend.md): compat entries are prepended so explicit
+    // `backend` / `paramsBackend` assignments win.
+    {
+        std::string backend;
+        if (GetBool(opts, "keepClipOnCpu", false)) backend += "te=cpu,";
+        if (GetBool(opts, "keepVaeOnCpu", false)) backend += "vae=cpu,";
+        if (GetBool(opts, "keepControlNetOnCpu", false)) backend += "controlnet=cpu,";
+        if (opts.Has("backend") && opts.Get("backend").IsString()) {
+            backend += opts.Get("backend").As<Napi::String>().Utf8Value();
+        } else if (!backend.empty()) {
+            backend.pop_back();  // trailing ','
+        }
+        if (!backend.empty()) p.backend = ss.add(backend);
+
+        std::string params_backend;
+        if (GetBool(opts, "offloadParamsToCpu", false)) params_backend += "*=cpu,";
+        if (opts.Has("paramsBackend") && opts.Get("paramsBackend").IsString()) {
+            params_backend += opts.Get("paramsBackend").As<Napi::String>().Utf8Value();
+        } else if (!params_backend.empty()) {
+            params_backend.pop_back();
+        }
+        if (!params_backend.empty()) p.params_backend = ss.add(params_backend);
+    }
+
+    p.split_mode = ss.add(opts, "splitMode");
+    p.max_vram = ss.add(opts, "maxVram");
+    p.auto_fit = GetBool(opts, "autoFit", p.auto_fit);
+    p.rpc_servers = ss.add(opts, "rpcServers");
+    p.tokenizer = ss.add(opts, "tokenizer");
+    p.eager_load = GetBool(opts, "eagerLoad", p.eager_load);
+    p.disable_prefetch = GetBool(opts, "disablePrefetch", p.disable_prefetch);
+    p.conditioning_cache_size = GetInt(opts, "conditioningCacheSize", p.conditioning_cache_size);
+
     p.flash_attn = GetBool(opts, "flashAttn", p.flash_attn);
+    p.sage_attn = GetBool(opts, "sageAttn", p.sage_attn);
     p.diffusion_flash_attn = GetBool(opts, "diffusionFlashAttn", p.diffusion_flash_attn);
     p.tae_preview_only = GetBool(opts, "taePreviewOnly", p.tae_preview_only);
     p.diffusion_conv_direct = GetBool(opts, "diffusionConvDirect", p.diffusion_conv_direct);
     p.vae_conv_direct = GetBool(opts, "vaeConvDirect", p.vae_conv_direct);
-    p.circular_x = GetBool(opts, "circularX", p.circular_x);
-    p.circular_y = GetBool(opts, "circularY", p.circular_y);
     p.force_sdxl_vae_conv_scale = GetBool(opts, "forceSdxlVaeConvScale", p.force_sdxl_vae_conv_scale);
-    p.chroma_use_dit_mask = GetBool(opts, "chromaUseDitMask", p.chroma_use_dit_mask);
-    p.chroma_use_t5_mask = GetBool(opts, "chromaUseT5Mask", p.chroma_use_t5_mask);
-    p.chroma_t5_mask_pad = GetInt(opts, "chromaT5MaskPad", p.chroma_t5_mask_pad);
-    p.qwen_image_zero_cond_t = GetBool(opts, "qwenImageZeroCondT", p.qwen_image_zero_cond_t);
+
+    // The chroma_* / qwen_image_* ctx fields moved into the model_args
+    // key=value list. Old JS options are folded in; an explicit `modelArgs`
+    // string is appended last so it wins.
+    {
+        std::string model_args;
+        auto addArg = [&](const char* key, const std::string& value) {
+            if (!model_args.empty()) model_args += ",";
+            model_args += key;
+            model_args += "=";
+            model_args += value;
+        };
+        if (opts.Has("chromaUseDitMask") && opts.Get("chromaUseDitMask").IsBoolean()) {
+            addArg("chroma_use_dit_mask", GetBool(opts, "chromaUseDitMask", true) ? "true" : "false");
+        }
+        if (opts.Has("chromaUseT5Mask") && opts.Get("chromaUseT5Mask").IsBoolean()) {
+            addArg("chroma_use_t5_mask", GetBool(opts, "chromaUseT5Mask", false) ? "true" : "false");
+        }
+        if (opts.Has("chromaT5MaskPad") && opts.Get("chromaT5MaskPad").IsNumber()) {
+            addArg("chroma_t5_mask_pad", std::to_string(GetInt(opts, "chromaT5MaskPad", 1)));
+        }
+        if (opts.Has("qwenImageZeroCondT") && opts.Get("qwenImageZeroCondT").IsBoolean()) {
+            addArg("qwen_image_zero_cond_t", GetBool(opts, "qwenImageZeroCondT", false) ? "true" : "false");
+        }
+        if (opts.Has("modelArgs") && opts.Get("modelArgs").IsString()) {
+            std::string extra = opts.Get("modelArgs").As<Napi::String>().Utf8Value();
+            if (!extra.empty()) {
+                if (!model_args.empty()) model_args += ",";
+                model_args += extra;
+            }
+        }
+        if (!model_args.empty()) p.model_args = ss.add(model_args);
+    }
 
     return p;
 }
@@ -318,8 +382,33 @@ sd_img_gen_params_t ToImgGenParams(const Napi::Object& opts, StringStore& ss, Ar
     p.seed = GetInt64(opts, "seed", p.seed);
     p.batch_count = GetInt(opts, "batchCount", p.batch_count);
     p.control_strength = static_cast<float>(GetDouble(opts, "controlStrength", p.control_strength));
-    p.auto_resize_ref_image = GetBool(opts, "autoResizeRefImage", p.auto_resize_ref_image);
-    p.increase_ref_index = GetBool(opts, "increaseRefIndex", p.increase_ref_index);
+    // circular_x/y moved from ctx params to per-generation params upstream;
+    // the JS options keep living on the generate call's options object.
+    p.circular_x = GetBool(opts, "circularX", p.circular_x);
+    p.circular_y = GetBool(opts, "circularY", p.circular_y);
+
+    // auto_resize_ref_image / increase_ref_index were folded into the
+    // ref_image_args key=value list upstream. Old JS booleans are mapped; an
+    // explicit `refImageArgs` string is appended last so it wins.
+    {
+        std::string ref_args;
+        if (opts.Has("autoResizeRefImage") && opts.Get("autoResizeRefImage").IsBoolean() &&
+            !GetBool(opts, "autoResizeRefImage", true)) {
+            ref_args += "resize_before_vae=false";
+        }
+        if (GetBool(opts, "increaseRefIndex", false)) {
+            if (!ref_args.empty()) ref_args += ",";
+            ref_args += "ref_index_mode=increase";
+        }
+        if (opts.Has("refImageArgs") && opts.Get("refImageArgs").IsString()) {
+            std::string extra = opts.Get("refImageArgs").As<Napi::String>().Utf8Value();
+            if (!extra.empty()) {
+                if (!ref_args.empty()) ref_args += ",";
+                ref_args += extra;
+            }
+        }
+        if (!ref_args.empty()) p.ref_image_args = ss.add(ref_args);
+    }
 
     // init_image
     if (opts.Has("initImage") && opts.Get("initImage").IsObject()) {
@@ -351,7 +440,7 @@ sd_img_gen_params_t ToImgGenParams(const Napi::Object& opts, StringStore& ss, Ar
 
     p.sample_params = ToSampleParams(opts, ss, as);
     p.pm_params = ToPmParams(opts, ss, as);
-    p.vae_tiling_params = ToTilingParams(opts);
+    p.vae_tiling_params = ToTilingParams(opts, ss);
     p.cache = ToCacheParams(opts, ss);
     p.hires = ToHiresParams(opts, ss);
 
@@ -372,8 +461,11 @@ sd_vid_gen_params_t ToVidGenParams(const Napi::Object& opts, StringStore& ss, Ar
     p.strength = static_cast<float>(GetDouble(opts, "strength", p.strength));
     p.seed = GetInt64(opts, "seed", p.seed);
     p.video_frames = GetInt(opts, "videoFrames", p.video_frames);
+    p.fps = GetInt(opts, "fps", p.fps);
     p.moe_boundary = static_cast<float>(GetDouble(opts, "moeBoundary", p.moe_boundary));
     p.vace_strength = static_cast<float>(GetDouble(opts, "vaceStrength", p.vace_strength));
+    p.circular_x = GetBool(opts, "circularX", p.circular_x);
+    p.circular_y = GetBool(opts, "circularY", p.circular_y);
 
     // init_image
     if (opts.Has("initImage") && opts.Get("initImage").IsObject()) {
@@ -408,7 +500,7 @@ sd_vid_gen_params_t ToVidGenParams(const Napi::Object& opts, StringStore& ss, Ar
         p.high_noise_sample_params = ToSampleParams(hOpts, ss, as);
     }
 
-    p.vae_tiling_params = ToTilingParams(opts);
+    p.vae_tiling_params = ToTilingParams(opts, ss);
     p.cache = ToCacheParams(opts, ss);
 
     return p;
