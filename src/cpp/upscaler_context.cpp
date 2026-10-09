@@ -12,7 +12,10 @@ Napi::Object UpscalerContext::Init(Napi::Env env, Napi::Object exports) {
         InstanceMethod<&UpscalerContext::GetUpscaleFactor>("getUpscaleFactor"),
         InstanceMethod<&UpscalerContext::Abort>("abort"),
         InstanceMethod<&UpscalerContext::Close>("close"),
-        InstanceAccessor<&UpscalerContext::IsClosed>("isClosed"),
+        // Runtime-pointer overload: the template form (InstanceAccessor<&T::IsClosed>)
+        // hits an MSVC C1001 internal compiler error (constexpr.cpp) on current
+        // VS 17.x toolsets.
+        InstanceAccessor("isClosed", &UpscalerContext::IsClosed, nullptr),
         StaticMethod<&UpscalerContext::Create>("create"),
     });
 

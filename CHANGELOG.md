@@ -65,6 +65,11 @@ in the git log.
 
 ### Fixed
 
+- Windows build: worked around an MSVC C1001 internal compiler error on
+  current VS 17.x toolsets by switching the two `isClosed` accessors from the
+  templated `InstanceAccessor<&T::IsClosed>` form to the runtime-pointer
+  overload (`napi-inl.h` constexpr instantiation was the crash site). No
+  behaviour change.
 - Pointer-stability hazard in the options string store: short strings could
   dangle after internal reallocation (vector → deque).
 - Video generation no longer leaks the audio track returned by audio-capable
