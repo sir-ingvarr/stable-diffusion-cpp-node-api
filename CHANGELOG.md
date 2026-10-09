@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Changelog entries start at the 2026-10-09 upstream bump; earlier history lives
 in the git log.
 
+## [0.14.1] - 2026-10-10
+
+### Changed
+
+- CI only, no library changes: GitHub Actions bumped off deprecated
+  Node 20 versions (`checkout@v6`, `setup-node@v6`, artifacts v7/v8,
+  `gh-release@v3`); the linux release build is pinned to `ubuntu-24.04`
+  so the prebuild's glibc floor no longer follows the `ubuntu-latest`
+  label; release notes fall back to the latest changelog entry when a
+  patch release has no dedicated section.
+
 ## [0.14.0] - 2026-10-09
 
 ### Added
