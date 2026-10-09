@@ -53,7 +53,7 @@ in the git log.
   other multi-pass flows.
 - **Test suite.** `npm test` runs unit tests (no model required) and
   functional tests against a real model — set `SD_NODE_MODEL_PATH` or answer
-  the prompt once; `SD_NODE_ESRGAN_MODEL_PATH` additionally enables the
+  the prompt; `SD_NODE_ESRGAN_MODEL_PATH` additionally enables the
   upscaler tests. Generated images are validated for sanity (not black, not
   white, healthy color variety). `npm run hooks:install` adds a pre-commit
   hook that runs the suite; unit tests also run on every platform in the
