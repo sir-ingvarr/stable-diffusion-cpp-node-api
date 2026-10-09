@@ -8,6 +8,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Changelog entries start at the 2026-10-09 upstream bump; earlier history lives
 in the git log.
 
+## [0.14.0] - 2026-10-09
+
+### Added
+
+- **Batch soft-cancel.** `ctx.abort({ mode: 'skip-pending' })` finishes the
+  image currently being sampled, skips the rest of the batch, and
+  `generateImage` *resolves* with the completed images instead of rejecting.
+  Plain `abort()` still cancels immediately with an `AbortError`.
+- **ControlNet hot-swap.** `ctx.loadControlNet(path)`,
+  `ctx.unloadControlNet()`, and `ctx.hasControlNet()` attach or drop a
+  ControlNet on a live context — no need to reload the base model. Calls are
+  queued safely behind any running generation.
+- **ADetailer** — the automatic face/hand detail-fix pass known from SD UIs.
+  Create a detector once with
+  `AdetailerContext.create({ detectorPath })`, then
+  `adetailer.adetail(ctx, image, { prompt, inpaint })` detects faces/hands in
+  an image and re-inpaints them at higher quality using your existing
+  `StableDiffusionContext`. The `inpaint` options take the same shape as
+  `generateImage`.
+- **`listDevices()`** — enumerates the available compute devices
+  (`{ name, description }`, e.g. GPU and CPU backends). The names are what
+  the `backend` / `paramsBackend` options accept, so you can build a device
+  picker with it.
+- **`ctx.getModelVersionName()`** — a friendly name for the loaded model
+  ("SDXL", "SD 3.5 Large", …), no metadata digging required.
+- **Video results now include sound and frame rate.** For audio-capable
+  video models, the array returned by `generateVideo` carries an `audio`
+  property (`{ sampleRate, channels, data: Float32Array }`) and an `fps`
+  property with the effective frame rate. Previously the audio track was
+  discarded.
+- **Importance-matrix (imatrix) quantization.** Collect importance data
+  during generations with `enableImatrixCollection()`, save it with
+  `saveImatrix(path)`, and `loadImatrix(path)` before `convert()` to get
+  higher-quality quantized models.
+- **Multi-component conversion.** `convert()` can now assemble a model from
+  separate component files — pass any of `clipLPath`, `clipGPath`,
+  `t5xxlPath`, `diffusionModelPath` (and optionally `loras` to bake adapters
+  into the output).
+- **`getUpscalerModelScale(path)`** — read an ESRGAN model's native scale
+  (x2/x4/…) straight from the file, without creating an upscaler context.
+- **Better multi-pass progress.** Preview callbacks now include `samplePass`
+  and `totalSteps`, so UIs can show accurate progress for hires-fix and
+  other multi-pass flows.
+- **Test suite.** `npm test` runs unit tests (no model required) and
+  functional tests against a real model — set `SD_NODE_MODEL_PATH` or answer
+  the prompt once; `SD_NODE_ESRGAN_MODEL_PATH` additionally enables the
+  upscaler tests. Generated images are validated for sanity (not black, not
+  white, healthy color variety). `npm run hooks:install` adds a pre-commit
+  hook that runs the suite; unit tests also run on every platform in the
+  release pipeline before anything is published. Replaces `test/basic.js`;
+  a `smoke_features.js` demo script covers the new features end to end.
+- README now carries live Build / Tests status badges and links to this
+  changelog, and GitHub release notes are generated from the matching
+  changelog section automatically.
+
 ## [0.13.0] - 2026-10-09
 
 ### Security

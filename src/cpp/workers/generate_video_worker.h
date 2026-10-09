@@ -3,6 +3,7 @@
 #include <napi.h>
 #include <stable-diffusion.h>
 
+#include <cstring>
 #include <utility>
 
 #include "../abort_helper.h"
@@ -66,6 +67,22 @@ class GenerateVideoWorker : public Napi::AsyncWorker {
             result_frames_[i].data = nullptr;
         }
         free_sd_images(result_frames_, num_frames_);
+
+        // Audio-capable models return a track; ride it (and the effective
+        // fps) on the frames array as non-index properties so the resolve
+        // shape stays backward compatible.
+        arr.Set("fps", Napi::Number::New(env, fps_out_));
+        if (result_audio_ && result_audio_->data && result_audio_->sample_count > 0) {
+            Napi::Object audio = Napi::Object::New(env);
+            audio.Set("sampleRate", Napi::Number::New(env, result_audio_->sample_rate));
+            audio.Set("channels", Napi::Number::New(env, result_audio_->channels));
+            const size_t n = static_cast<size_t>(result_audio_->sample_count) *
+                             result_audio_->channels;
+            auto buf = Napi::ArrayBuffer::New(env, n * sizeof(float));
+            std::memcpy(buf.Data(), result_audio_->data, n * sizeof(float));
+            audio.Set("data", Napi::Float32Array::New(env, n, buf, 0));
+            arr.Set("audio", audio);
+        }
         FreeAudio();
         deferred_.Resolve(arr);
     }

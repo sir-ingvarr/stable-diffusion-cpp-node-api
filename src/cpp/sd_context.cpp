@@ -1,6 +1,9 @@
 #include "sd_context.h"
 
+#include <string>
+
 #include "abort_helper.h"
+#include "workers/control_net_worker.h"
 #include "workers/create_context_worker.h"
 #include "workers/generate_image_worker.h"
 #include "workers/generate_video_worker.h"
@@ -13,6 +16,10 @@ Napi::Object StableDiffusionContext::Init(Napi::Env env, Napi::Object exports) {
         InstanceMethod<&StableDiffusionContext::GenerateVideo>("generateVideo"),
         InstanceMethod<&StableDiffusionContext::GetDefaultSampleMethod>("getDefaultSampleMethod"),
         InstanceMethod<&StableDiffusionContext::GetDefaultScheduler>("getDefaultScheduler"),
+        InstanceMethod<&StableDiffusionContext::GetModelVersionName>("getModelVersionName"),
+        InstanceMethod<&StableDiffusionContext::LoadControlNet>("loadControlNet"),
+        InstanceMethod<&StableDiffusionContext::UnloadControlNet>("unloadControlNet"),
+        InstanceMethod<&StableDiffusionContext::HasControlNet>("hasControlNet"),
         InstanceMethod<&StableDiffusionContext::Abort>("abort"),
         InstanceMethod<&StableDiffusionContext::Close>("close"),
         // Runtime-pointer overload: the template form (InstanceAccessor<&T::IsClosed>)
@@ -130,8 +137,67 @@ Napi::Value StableDiffusionContext::GetDefaultScheduler(const Napi::CallbackInfo
     return Napi::String::New(env, sd_scheduler_name(scheduler));
 }
 
+Napi::Value StableDiffusionContext::GetModelVersionName(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    if (!ctx_) {
+        Napi::Error::New(env, "Context is closed").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+    return Napi::String::New(env, sd_get_model_version_name(ctx_.get()));
+}
+
+Napi::Value StableDiffusionContext::LoadControlNet(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    if (!ctx_) {
+        Napi::Error::New(env, "Context is closed").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+    if (info.Length() < 1 || !info[0].IsString()) {
+        Napi::TypeError::New(env, "Expected ControlNet model path string").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+    std::string path = info[0].As<Napi::String>().Utf8Value();
+    auto* worker = new ControlNetWorker(env, ctx_, std::move(path));
+    auto promise = worker->Deferred().Promise();
+    worker->Queue();
+    return promise;
+}
+
+Napi::Value StableDiffusionContext::UnloadControlNet(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    if (!ctx_) {
+        Napi::Error::New(env, "Context is closed").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+    auto* worker = new ControlNetWorker(env, ctx_, std::string());
+    auto promise = worker->Deferred().Promise();
+    worker->Queue();
+    return promise;
+}
+
+Napi::Value StableDiffusionContext::HasControlNet(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    if (!ctx_) {
+        Napi::Error::New(env, "Context is closed").ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+    return Napi::Boolean::New(env, sd_ctx_has_control_net(ctx_.get()));
+}
+
 void StableDiffusionContext::Abort(const Napi::CallbackInfo& info) {
-    if (abort_state_) AbortHelper::requestAbort(*abort_state_);
+    if (!abort_state_) return;
+    // Default: hard cancel. { mode: 'skip-pending' } finishes the current
+    // batch image, skips the remaining latents, and the generate call
+    // resolves with the completed images (partial success, no AbortError).
+    sd_cancel_mode_t mode = SD_CANCEL_ALL;
+    if (info.Length() >= 1 && info[0].IsObject()) {
+        Napi::Object opts = info[0].As<Napi::Object>();
+        if (opts.Has("mode") && opts.Get("mode").IsString()) {
+            std::string m = opts.Get("mode").As<Napi::String>().Utf8Value();
+            if (m == "skip-pending") mode = SD_CANCEL_NEW_LATENTS;
+        }
+    }
+    AbortHelper::requestAbort(*abort_state_, mode);
 }
 
 void StableDiffusionContext::Close(const Napi::CallbackInfo& info) {

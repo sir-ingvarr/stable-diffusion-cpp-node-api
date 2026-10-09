@@ -13,6 +13,11 @@ inline Napi::ThreadSafeFunction tsfn;
 struct PreviewData {
     int step;
     bool is_noisy;
+    // Multi-pass (e.g. hires) progress info, snapshotted from
+    // sd_get_preview_info() while still inside the C callback. Passes are
+    // numbered from 1; total_steps is the step count of that pass.
+    int sample_pass;
+    int total_steps;
     // Deep-copied frame data (original may be freed after C callback returns)
     struct Frame {
         uint32_t width;
@@ -29,6 +34,9 @@ inline void CCallback(int step, int frame_count, sd_image_t* frames, bool is_noi
     auto* pd = new PreviewData();
     pd->step = step;
     pd->is_noisy = is_noisy;
+    const sd_preview_info_t pinfo = sd_get_preview_info();
+    pd->sample_pass = pinfo.sample_pass;
+    pd->total_steps = pinfo.total_steps;
     pd->frames.resize(frame_count);
 
     for (int i = 0; i < frame_count; i++) {
@@ -45,6 +53,8 @@ inline void CCallback(int step, int frame_count, sd_image_t* frames, bool is_noi
         Napi::Object obj = Napi::Object::New(env);
         obj.Set("step", Napi::Number::New(env, data->step));
         obj.Set("isNoisy", Napi::Boolean::New(env, data->is_noisy));
+        obj.Set("samplePass", Napi::Number::New(env, data->sample_pass));
+        obj.Set("totalSteps", Napi::Number::New(env, data->total_steps));
 
         Napi::Array framesArr = Napi::Array::New(env, data->frames.size());
         for (size_t i = 0; i < data->frames.size(); i++) {

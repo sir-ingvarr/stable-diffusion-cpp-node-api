@@ -360,12 +360,27 @@ export interface UpscalerOptions extends AbortableOptions {
 export interface UpscaleOptions extends AbortableOptions {}
 
 export interface ConvertOptions extends AbortableOptions {
-    inputPath: string;
+    inputPath?: string;
     outputPath: string;
     vaePath?: string;
     outputType?: SdType;
     tensorTypeRules?: string;
     convertName?: boolean;
+    /**
+     * Multi-component conversion (upstream `convert_with_components`):
+     * supplying any of the component paths below — or `loras` / explicit
+     * `nThreads` behaviour — assembles the output from separate component
+     * files instead of a single input file. `inputPath` is then the optional
+     * base model.
+     */
+    clipLPath?: string;
+    clipGPath?: string;
+    t5xxlPath?: string;
+    diffusionModelPath?: string;
+    /** Threads for the components conversion. Default: physical core count. */
+    nThreads?: number;
+    /** LoRAs baked into the converted output (components conversion only). */
+    loras?: LoraDefinition[];
 }
 
 export type SDVersionSlug =
@@ -454,7 +469,56 @@ export interface ProgressCallbackData {
 export interface PreviewCallbackData {
     step: number;
     isNoisy: boolean;
+    /**
+     * Sampling pass this preview belongs to, numbered from 1 since the last
+     * setPreviewCallback call (multi-pass flows like hires fix run several).
+     * 0 before sampling starts.
+     */
+    samplePass: number;
+    /** Actual step count of that pass (0 before sampling starts). */
+    totalSteps: number;
     frames: SdImage[];
+}
+
+// --- Video / audio results ---
+
+export interface SdAudio {
+    sampleRate: number;
+    channels: number;
+    /** Interleaved samples, `sampleCount * channels` floats. */
+    data: Float32Array;
+}
+
+/**
+ * generateVideo resolves with the frames array; audio-capable models also
+ * attach the decoded `audio` track, and `fps` carries the effective encoding
+ * frame rate reported by the engine.
+ */
+export type VideoGenerationResult = SdImage[] & { audio?: SdAudio; fps: number };
+
+// --- ADetailer ---
+
+export interface AdetailerOptions extends AbortableOptions {
+    /** Path to the detector model (YOLO-style face/hand detector). */
+    detectorPath: string;
+    nThreads?: number;
+    /** Runtime backend assignments, same syntax as ContextOptions.backend. */
+    backend?: string;
+    /** Parameter placement assignments, same syntax as ContextOptions.paramsBackend. */
+    paramsBackend?: string;
+}
+
+export interface AdetailOptions extends AbortableOptions {
+    /** Prompt for the detail inpaint pass. */
+    prompt?: string;
+    negativePrompt?: string;
+    /** Extra upstream ADetailer args as a key=value list. */
+    extraAdArgs?: string;
+    /**
+     * Generation parameters for the inpaint pass (same surface as
+     * generateImage: strength, sampleParams, seed, ...). Defaults otherwise.
+     */
+    inpaint?: Omit<ImageGenerationOptions, 'signal'>;
 }
 
 // --- Classes ---
@@ -463,21 +527,59 @@ export class StableDiffusionContext {
     private constructor();
     static create(options: ContextOptions): Promise<StableDiffusionContext>;
     generateImage(options: ImageGenerationOptions): Promise<SdImage[]>;
-    generateVideo(options: VideoGenerationOptions): Promise<SdImage[]>;
+    generateVideo(options: VideoGenerationOptions): Promise<VideoGenerationResult>;
     getDefaultSampleMethod(): SampleMethod;
     getDefaultScheduler(sampleMethod?: SampleMethod): Scheduler;
+    /**
+     * Friendly model-version string for the loaded model (e.g. "SDXL",
+     * "SD 3.5 Large", "Flux"), or "Unknown".
+     */
+    getModelVersionName(): string;
+    /**
+     * Attach a ControlNet to this live context without reloading the base
+     * model (replaces any currently attached one). Serialized on the same
+     * per-ctx queue as generateImage / generateVideo, because the hot-swap
+     * is unsafe while a generation is in flight.
+     */
+    loadControlNet(path: string): Promise<void>;
+    /** Detach and free the currently attached ControlNet. Serialized like loadControlNet. */
+    unloadControlNet(): Promise<void>;
+    /** Whether a ControlNet is currently attached. */
+    hasControlNet(): boolean;
     /**
      * Cancel any in-flight or queued generateImage / generateVideo
      * call on this context. Concurrent calls on a different context
      * are unaffected.
+     *
+     * `{ mode: 'skip-pending' }` is a batch soft-cancel: the engine
+     * finishes the image currently being sampled, skips the remaining
+     * batch latents, and the generate call resolves with the completed
+     * images (no AbortError). The default `'all'` stops at the next
+     * step and rejects with AbortError.
      */
-    abort(): void;
+    abort(options?: { mode?: 'all' | 'skip-pending' }): void;
     /**
      * Cancel any in-flight work on this context, then release the native
      * resources. Returns immediately; the worker observes the abort at its
      * next checkpoint and the native ctx is freed when the last reference
      * (wrapper or worker) drops.
      */
+    close(): void;
+    readonly isClosed: boolean;
+}
+
+export class AdetailerContext {
+    private constructor();
+    /** Create an ADetailer context (loads the detector model on a background thread). */
+    static create(options: AdetailerOptions): Promise<AdetailerContext>;
+    /**
+     * Run an automatic detail-fix pass (face/hand inpaint) over an image.
+     * The inpaint generation runs on `sdCtx`; the call is serialized on both
+     * this adetailer's queue and that context's generate queue, and an abort
+     * maps to `sdCtx.abort()`.
+     */
+    adetail(sdCtx: StableDiffusionContext, image: SdImage, options?: AdetailOptions): Promise<SdImage>;
+    /** Release the detector context. See {@link StableDiffusionContext#close}. */
     close(): void;
     readonly isClosed: boolean;
 }
@@ -520,3 +622,34 @@ export function getSystemInfo(): string;
 export function getNumPhysicalCores(): number;
 export function version(): string;
 export function commit(): string;
+
+export interface DeviceInfo {
+    /** Device name accepted by the backend / paramsBackend assignment specs (e.g. "MTL0", "CUDA0", "CPU"). */
+    name: string;
+    /** Human-readable description (e.g. "Apple M3 Max"). */
+    description: string;
+}
+
+/** List available ggml backend devices for backend / paramsBackend assignments. */
+export function listDevices(): DeviceInfo[];
+
+/**
+ * Read an ESRGAN model's native upscale factor from its metadata without
+ * creating an upscaler context. Returns 0 if the file is not a recognized
+ * RGB ESRGAN model.
+ */
+export function getUpscalerModelScale(path: string): number;
+
+// --- Importance-matrix (imatrix) workflow for quantization quality ---
+
+/**
+ * Load a previously saved importance matrix so a following convert() weighs
+ * tensors by importance. Returns false if the file could not be loaded.
+ */
+export function loadImatrix(path: string): boolean;
+/** Save the importance matrix collected since enableImatrixCollection(). */
+export function saveImatrix(path: string): void;
+/** Start collecting importance data during generations. */
+export function enableImatrixCollection(): void;
+/** Stop collecting importance data. */
+export function disableImatrixCollection(): void;

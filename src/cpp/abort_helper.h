@@ -11,8 +11,14 @@ namespace AbortHelper {
 // UpscalerContext (one per native sd_ctx_t / upscaler_ctx_t) and held
 // alongside the ctx by in-flight workers, so two contexts can be
 // cancelled independently.
+//
+// `mode` picks the engine-side cancel behaviour for generate ops:
+// SD_CANCEL_ALL stops at the next step; SD_CANCEL_NEW_LATENTS finishes the
+// current batch image, skips the remaining latents, and generate_* returns
+// the completed images (partial success). Upscaler ops ignore the mode.
 struct AbortState {
     std::atomic<bool> requested{false};
+    std::atomic<int>  mode{SD_CANCEL_ALL};
 };
 
 // Pointer to the AbortState the worker currently running on this thread
@@ -37,12 +43,16 @@ class AbortException : public std::exception {
     const char* what() const noexcept override { return "Operation aborted"; }
 };
 
-inline void requestAbort(AbortState& state) {
+inline void requestAbort(AbortState& state, sd_cancel_mode_t mode = SD_CANCEL_ALL) {
+    // Mode must be visible before the flag flips; `requested` release-store
+    // publishes it to the worker's acquire-load.
+    state.mode.store(mode, std::memory_order_relaxed);
     state.requested.store(true, std::memory_order_release);
 }
 
 inline void clearAbort(AbortState& state) {
     state.requested.store(false, std::memory_order_release);
+    state.mode.store(SD_CANCEL_ALL, std::memory_order_relaxed);
 }
 
 // RAII guard that points the worker thread at a specific ctx's
@@ -86,7 +96,9 @@ inline void throwIfAborted() {
     if (throw_on_abort && current &&
         current->requested.load(std::memory_order_acquire)) {
         if (current_sd_ctx) {
-            sd_cancel_generation(current_sd_ctx, SD_CANCEL_ALL);
+            sd_cancel_generation(current_sd_ctx,
+                static_cast<sd_cancel_mode_t>(
+                    current->mode.load(std::memory_order_relaxed)));
             return;
         }
         throw AbortException();

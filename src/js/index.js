@@ -78,6 +78,10 @@ function chainAbortable(ctx, signal, runOnce) {
     return next;
 }
 
+// Native handles of StableDiffusionContext wrappers, so AdetailerContext can
+// hand the target ctx to its native adetail() without exposing #native.
+const nativeHandles = new WeakMap();
+
 class StableDiffusionContext {
     #native;
     _queue = Promise.resolve();
@@ -85,6 +89,7 @@ class StableDiffusionContext {
     /** @internal — use StableDiffusionContext.create() */
     constructor(nativeCtx) {
         this.#native = nativeCtx;
+        nativeHandles.set(this, nativeCtx);
     }
 
     /**
@@ -143,14 +148,62 @@ class StableDiffusionContext {
     }
 
     /**
+     * Friendly model-version string for the loaded model (e.g. "SDXL",
+     * "SD 3.5 Large", "Flux"), or "Unknown".
+     * @returns {string}
+     */
+    getModelVersionName() {
+        return this.#native.getModelVersionName();
+    }
+
+    /**
+     * Attach a ControlNet to this live context without reloading the base
+     * model (replaces any currently attached one). Unsafe while a generation
+     * is in flight, so the call is serialized on the same per-ctx queue as
+     * generateImage / generateVideo.
+     * @param {string} path
+     * @returns {Promise<void>}
+     */
+    loadControlNet(path) {
+        const n = this.#native;
+        return chainAbortable(this, undefined, () => n.loadControlNet(path));
+    }
+
+    /**
+     * Detach and free the currently attached ControlNet. Serialized like
+     * loadControlNet.
+     * @returns {Promise<void>}
+     */
+    unloadControlNet() {
+        const n = this.#native;
+        return chainAbortable(this, undefined, () => n.unloadControlNet());
+    }
+
+    /**
+     * Whether a ControlNet is currently attached to this context.
+     * @returns {boolean}
+     */
+    hasControlNet() {
+        return this.#native.hasControlNet();
+    }
+
+    /**
      * Cancel any in-flight or queued generateImage / generateVideo
      * call on this context. Takes effect at the next cancellation
      * checkpoint inside the running op (typically within a fraction of
      * a second). Queued ops that have not yet started reject
      * immediately with AbortError.
+     *
+     * `{ mode: 'skip-pending' }` is a batch soft-cancel: the engine
+     * finishes the image currently being sampled, skips the remaining
+     * batch latents, and the generate call *resolves* with the completed
+     * images (no AbortError). The default `'all'` stops at the next step
+     * and rejects with AbortError.
+     *
+     * @param {{ mode?: 'all' | 'skip-pending' }} [options]
      */
-    abort() {
-        this.#native.abort();
+    abort(options) {
+        this.#native.abort(options);
     }
 
     /**
@@ -238,9 +291,82 @@ class UpscalerContext {
     }
 }
 
+class AdetailerContext {
+    #native;
+    _queue = Promise.resolve();
+
+    /** @internal — use AdetailerContext.create() */
+    constructor(nativeCtx) {
+        this.#native = nativeCtx;
+    }
+
+    /**
+     * Create an ADetailer context (loads the YOLO-style detector model).
+     * @param {{ detectorPath: string, nThreads?: number, backend?: string,
+     *           paramsBackend?: string, signal?: AbortSignal }} options
+     * @returns {Promise<AdetailerContext>}
+     */
+    static async create(options) {
+        const { signal, ...opts } = options || {};
+        const ctx = await withAbortSignal(native.AdetailerContext.create(opts), signal);
+        return new AdetailerContext(ctx);
+    }
+
+    /**
+     * Run an automatic detail-fix pass (face/hand inpaint) over an image.
+     * The inpaint generation runs on `sdCtx`, so the call is serialized on
+     * both this adetailer's queue and that context's generate queue, and an
+     * abort maps to `sdCtx.abort()`.
+     *
+     * @param {StableDiffusionContext} sdCtx  Context the inpaint runs on.
+     * @param {{width: number, height: number, channel: number, data: Buffer}} image
+     * @param {{ prompt?: string, negativePrompt?: string, extraAdArgs?: string,
+     *           inpaint?: object, signal?: AbortSignal }} [options]
+     *        `inpaint` takes the generateImage option surface (strength,
+     *        sampleSteps, seed, ...) for the detail pass.
+     * @returns {Promise<{width: number, height: number, channel: number, data: Buffer}>}
+     */
+    adetail(sdCtx, image, options) {
+        const { signal, ...opts } = options || {};
+        const nAd = this.#native;
+        const nSd = nativeHandles.get(sdCtx);
+        if (!nSd) {
+            return Promise.reject(new TypeError('adetail: first argument must be a StableDiffusionContext'));
+        }
+        const abortReason = () => signal?.reason ?? new DOMException('The operation was aborted.', 'AbortError');
+        // Serialize on both queues: the detail pass generates on sdCtx, and
+        // the detector ctx itself is single-threaded.
+        const next = Promise.all([this._queue, sdCtx._queue]).then(() => {
+            if (signal?.aborted) return Promise.reject(abortReason());
+            return withAbortSignal(nAd.adetail(nSd, image, opts), signal, true, () => nSd.abort());
+        });
+        const settled = next.then(() => {}, () => {});
+        this._queue = settled;
+        sdCtx._queue = settled;
+        return next;
+    }
+
+    /**
+     * Release the detector context. A running detail pass keeps its own
+     * reference; the native ctx is freed when the last reference drops.
+     */
+    close() {
+        this.#native.close();
+    }
+
+    /**
+     * Whether close() has been called on this wrapper.
+     * @returns {boolean}
+     */
+    get isClosed() {
+        return this.#native.isClosed;
+    }
+}
+
 module.exports = {
     StableDiffusionContext,
     UpscalerContext,
+    AdetailerContext,
 
     // Free functions
     convert(options) {
@@ -256,4 +382,14 @@ module.exports = {
     getNumPhysicalCores: native.getNumPhysicalCores,
     version: native.version,
     commit: native.commit,
+    listDevices: native.listDevices,
+    getUpscalerModelScale: native.getUpscalerModelScale,
+
+    // Importance-matrix (imatrix) workflow for quantization quality:
+    // enable collection, run representative generations, save; later load
+    // before convert() so the quantizer weighs tensors by importance.
+    loadImatrix: native.loadImatrix,
+    saveImatrix: native.saveImatrix,
+    enableImatrixCollection: () => native.setImatrixCollection(true),
+    disableImatrixCollection: () => native.setImatrixCollection(false),
 };

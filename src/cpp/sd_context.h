@@ -17,6 +17,11 @@ class StableDiffusionContext : public Napi::ObjectWrap<StableDiffusionContext> {
 
     StableDiffusionContext(const Napi::CallbackInfo& info);
 
+    // Shared-ownership handles for workers driven by other wrappers
+    // (AdetailerContext runs inpaint generations on this ctx).
+    SdCtxPtr shared_ctx() const { return ctx_; }
+    AbortStatePtr abort_state() const { return abort_state_; }
+
   private:
     static Napi::FunctionReference constructor_;
 
@@ -24,6 +29,10 @@ class StableDiffusionContext : public Napi::ObjectWrap<StableDiffusionContext> {
     Napi::Value GenerateVideo(const Napi::CallbackInfo& info);
     Napi::Value GetDefaultSampleMethod(const Napi::CallbackInfo& info);
     Napi::Value GetDefaultScheduler(const Napi::CallbackInfo& info);
+    Napi::Value GetModelVersionName(const Napi::CallbackInfo& info);
+    Napi::Value LoadControlNet(const Napi::CallbackInfo& info);
+    Napi::Value UnloadControlNet(const Napi::CallbackInfo& info);
+    Napi::Value HasControlNet(const Napi::CallbackInfo& info);
     void Abort(const Napi::CallbackInfo& info);
     void Close(const Napi::CallbackInfo& info);
     Napi::Value IsClosed(const Napi::CallbackInfo& info);
