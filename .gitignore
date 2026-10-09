@@ -8,3 +8,6 @@ prebuilds/
 
 .idea
 .cache
+
+# Local planning notes
+FEATURE_IDEAS.md
