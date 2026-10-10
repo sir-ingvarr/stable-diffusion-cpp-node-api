@@ -27,7 +27,11 @@
 
 // --- Free functions ---
 
-static Napi::Value GetSystemInfo(const Napi::CallbackInfo& info) {
+// Named *Js to avoid colliding with the Win32 GetSystemInfo() that
+// <windows.h> (pulled in for the backend-DL path lookup) drags into the
+// global namespace — the overload set breaks template deduction in
+// Napi::Function::New on MSVC.
+static Napi::Value GetSystemInfoJs(const Napi::CallbackInfo& info) {
     return Napi::String::New(info.Env(), sd_get_system_info());
 }
 
@@ -295,7 +299,7 @@ static Napi::Object Init(Napi::Env env, Napi::Object exports) {
     UpscalerContext::Init(env, exports);
     AdetailerContext::Init(env, exports);
 
-    exports.Set("getSystemInfo", Napi::Function::New(env, GetSystemInfo));
+    exports.Set("getSystemInfo", Napi::Function::New(env, GetSystemInfoJs));
     exports.Set("getNumPhysicalCores", Napi::Function::New(env, GetNumPhysicalCores));
     exports.Set("version", Napi::Function::New(env, Version));
     exports.Set("commit", Napi::Function::New(env, Commit));
