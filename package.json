@@ -60,6 +60,7 @@
         "@stable-diffusion-cpp-node-api/darwin-arm64": "0.14.1",
         "@stable-diffusion-cpp-node-api/darwin-x64": "0.14.1",
         "@stable-diffusion-cpp-node-api/linux-x64": "0.14.1",
+        "@stable-diffusion-cpp-node-api/linux-arm64": "0.14.1",
         "@stable-diffusion-cpp-node-api/win32-x64": "0.14.1"
     }
 }

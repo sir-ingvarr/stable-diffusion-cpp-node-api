@@ -22,12 +22,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # macOS: static single-file build — Metal (embedded) covers GPU.
           - os: macos-latest
             platform: darwin
             arch: arm64
           - os: macos-latest-large
             platform: darwin
             arch: x64
+          # Linux/Windows: backend-DL builds (SD_NODE_BACKEND_DL). The
+          # package ships ggml as shared libs plus runtime-loadable
+          # backends: one CPU module per microarchitecture (picked by score
+          # at runtime) and a Vulkan module that is skipped gracefully when
+          # the system has no Vulkan loader.
           # Pinned (not ubuntu-latest): the published linux binary's minimum
           # glibc comes from the build image. ubuntu-latest migrates to
           # Ubuntu 26 from 2026-10-19, which would silently raise the glibc
@@ -35,11 +41,23 @@ jobs:
           - os: ubuntu-24.04
             platform: linux
             arch: x64
+            backends: dl-vulkan
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+            backends: dl-vulkan
           - os: windows-latest
             platform: win32
             arch: x64
+            backends: dl-vulkan
 
     runs-on: ${{ matrix.os }}
+
+    env:
+      # Windows Vulkan SDK pin — keep in step with what the vendored
+      # stable-diffusion.cpp's own CI uses
+      # (deps/stable-diffusion.cpp/.github/workflows/build.yml).
+      VULKAN_VERSION: 1.4.328.1
 
     steps:
       # Patches are committed with LF line endings (generated on macOS / Linux).
@@ -65,7 +83,34 @@ jobs:
       - name: Install dependencies (skip native build)
         run: npm install --ignore-scripts
 
+      # Vulkan is only a BUILD-time dependency (glslc + headers); at runtime
+      # ggml dlopens the system Vulkan loader and falls back to CPU when it
+      # is missing. gcc-14 is needed by the armv9.2 CPU variant
+      # (GGML_CPU_ALL_VARIANTS).
+      - name: Install Vulkan build dependencies (Linux)
+        if: matrix.backends == 'dl-vulkan' && matrix.platform == 'linux'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y gcc-14 g++-14 glslc libvulkan-dev spirv-headers
+          echo "CC=gcc-14" >> "$GITHUB_ENV"
+          echo "CXX=g++-14" >> "$GITHUB_ENV"
+
+      # Same silent-install incantation as upstream stable-diffusion.cpp CI.
+      - name: Install Vulkan SDK (Windows)
+        if: matrix.backends == 'dl-vulkan' && matrix.platform == 'win32'
+        shell: pwsh
+        run: |
+          curl.exe -o $env:RUNNER_TEMP/VulkanSDK-Installer.exe -L "https://sdk.lunarg.com/sdk/download/$env:VULKAN_VERSION/windows/vulkansdk-windows-X64-$env:VULKAN_VERSION.exe"
+          & "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" --accept-licenses --default-answer --confirm-command install
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\$env:VULKAN_VERSION"
+          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\$env:VULKAN_VERSION\bin"
+
       - name: Build native module
+        env:
+          # Read by CMakeLists.txt (cmake-js does not reliably forward -D
+          # vars); empty means off.
+          SD_NODE_BACKEND_DL: ${{ matrix.backends == 'dl-vulkan' && '1' || '' }}
+          SD_NODE_VULKAN: ${{ matrix.backends == 'dl-vulkan' && '1' || '' }}
         run: npm run build:ci
 
       # The loader prefers the published platform packages from
@@ -82,7 +127,10 @@ jobs:
       - name: Run unit tests
         run: npm run test:unit
 
-      - name: Stage binary for upload
+      # Backend-DL builds stage the whole runtime set (addon + shared ggml
+      # libs + loadable backends, all placed next to the addon by the CMake
+      # POST_BUILD step); static builds stage just the .node.
+      - name: Stage binaries for upload
         shell: bash
         run: |
           set -euo pipefail
@@ -91,18 +139,29 @@ jobs:
             echo "::error::Could not find node_stable_diffusion.node"
             exit 1
           fi
+          OUT_DIR=$(dirname "$NODE_FILE")
           mkdir -p artifact
           cp "$NODE_FILE" artifact/node_stable_diffusion.node
+          find "$OUT_DIR" -maxdepth 1 -type f \
+            \( -name '*.so' -o -name '*.dll' -o -name '*.dylib' \) \
+            -exec cp {} artifact/ \;
+          if [ -n "${SD_NODE_BACKEND_DL:-}" ] && ! ls artifact/libggml-* artifact/ggml-*.dll >/dev/null 2>&1; then
+            echo "::error::backend-DL build produced no backend libraries"
+            exit 1
+          fi
+          ls -la artifact
+        env:
+          SD_NODE_BACKEND_DL: ${{ matrix.backends == 'dl-vulkan' && '1' || '' }}
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v7
         with:
           name: binary-${{ matrix.platform }}-${{ matrix.arch }}
-          path: artifact/node_stable_diffusion.node
+          path: artifact/
           if-no-files-found: error
           retention-days: 1
 
-  # Runs only if ALL four build jobs succeeded. Publishes every platform
+  # Runs only if ALL five build jobs succeeded. Publishes every platform
   # package + the meta package and creates the single GitHub release.
   # Because this is one job, there is no race to create the release, and
   # because it `needs: build`, a partial build never publishes anything.
@@ -136,17 +195,19 @@ jobs:
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
           echo "PACKAGE_VERSION=${PACKAGE_VERSION}" >> "$GITHUB_ENV"
           mkdir -p release
-          for triple in darwin-arm64 darwin-x64 linux-x64 win32-x64; do
-            SRC="artifacts/binary-${triple}/node_stable_diffusion.node"
-            if [ ! -f "$SRC" ]; then
+          for triple in darwin-arm64 darwin-x64 linux-x64 linux-arm64 win32-x64; do
+            SRC_DIR="artifacts/binary-${triple}"
+            if [ ! -f "$SRC_DIR/node_stable_diffusion.node" ]; then
               echo "::error::Missing binary for ${triple} — refusing to publish a partial release"
               exit 1
             fi
-            cp "$SRC" "npm/${triple}/node_stable_diffusion.node"
+            # Whole runtime set: the addon plus, for backend-DL platforms,
+            # the shared ggml libs and loadable backend modules.
+            cp "$SRC_DIR"/* "npm/${triple}/"
             mkdir -p staging/build/Release
-            cp "$SRC" staging/build/Release/node_stable_diffusion.node
+            cp "$SRC_DIR"/* staging/build/Release/
             tar -czf "release/stable-diffusion-cpp-node-api-v${PACKAGE_VERSION}-napi-v8-${triple}.tar.gz" \
-              -C staging build/Release/node_stable_diffusion.node
+              -C staging build/Release
             rm -rf staging
           done
 
@@ -160,7 +221,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for triple in darwin-arm64 darwin-x64 linux-x64 win32-x64; do
+          for triple in darwin-arm64 darwin-x64 linux-x64 linux-arm64 win32-x64; do
             echo "Publishing platform package ${triple}"
             ( cd "npm/${triple}" && npm publish --access public --provenance )
           done

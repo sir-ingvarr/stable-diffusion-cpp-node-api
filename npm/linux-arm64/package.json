@@ -1,0 +1,21 @@
+{
+    "name": "@stable-diffusion-cpp-node-api/linux-arm64",
+    "version": "0.14.1",
+    "description": "stable-diffusion-cpp-node-api native binary for Linux ARM64",
+    "os": [
+        "linux"
+    ],
+    "cpu": [
+        "arm64"
+    ],
+    "main": "node_stable_diffusion.node",
+    "files": [
+        "node_stable_diffusion.node",
+        "*.so"
+    ],
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/sir-ingvarr/stable-diffusion-cpp-node-api.git"
+    }
+}

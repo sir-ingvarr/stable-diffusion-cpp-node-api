@@ -4,6 +4,7 @@ const PLATFORMS = {
     'darwin-arm64': '@stable-diffusion-cpp-node-api/darwin-arm64',
     'darwin-x64':   '@stable-diffusion-cpp-node-api/darwin-x64',
     'linux-x64':    '@stable-diffusion-cpp-node-api/linux-x64',
+    'linux-arm64':  '@stable-diffusion-cpp-node-api/linux-arm64',
     'win32-x64':    '@stable-diffusion-cpp-node-api/win32-x64',
 };
 

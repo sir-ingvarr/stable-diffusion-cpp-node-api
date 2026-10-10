@@ -10,7 +10,8 @@
     ],
     "main": "node_stable_diffusion.node",
     "files": [
-        "node_stable_diffusion.node"
+        "node_stable_diffusion.node",
+        "*.dll"
     ],
     "license": "MIT",
     "repository": {

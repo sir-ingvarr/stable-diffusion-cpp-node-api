@@ -6,6 +6,10 @@ prebuilds/
 *.raw
 *.ppm
 
+# Shared libs staged into the platform packages by CI (backend-DL prebuilds)
+npm/**/*.so
+npm/**/*.dll
+
 .idea
 .cache
 

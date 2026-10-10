@@ -8,6 +8,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Changelog entries start at the 2026-10-09 upstream bump; earlier history lives
 in the git log.
 
+## [Unreleased]
+
+### Added
+
+- **Vulkan GPU support in the Linux and Windows prebuilds.** The
+  `linux-x64`, `linux-arm64` (new) and `win32-x64` platform packages are now
+  built with `GGML_BACKEND_DL`: ggml backends ship as runtime-loadable
+  libraries next to the addon instead of one statically linked CPU backend.
+  At runtime the best CPU variant for the machine is picked by score
+  (SSE4.2 → AVX-512/AMX on x86-64, armv8/armv9 on ARM — previously the
+  prebuilds were capped at a fixed baseline), and the Vulkan backend
+  (NVIDIA / AMD / Intel through the system Vulkan loader) is used when a
+  loader + driver are present, falling back to CPU silently otherwise.
+  Nothing to configure; `GGML_BACKEND_PATH` is honoured for out-of-tree
+  backends. macOS prebuilds are unchanged (static, embedded Metal).
+- **`linux-arm64` prebuilt platform package** — Graviton/Ampere servers and
+  Docker on Apple Silicon no longer need a source build.
+- **`SD_NODE_BACKEND_DL=1` / `SD_NODE_VULKAN=1`** environment variables for
+  source builds: enable the backend-DL layout and the ggml Vulkan backend
+  respectively (cmake-js does not reliably forward `-D` flags, hence env
+  vars). Vulkan needs the Vulkan SDK (glslc + headers) at build time only.
+
+### Changed
+
+- stable-diffusion.cpp submodule updated master-948 (`228c707`) →
+  master-951 (`f89d9b1`): Iris-3B text-to-image support, fix for LoRA
+  merging dropping a singleton output dimension, RPC protocol patch-version
+  bump. No public C API changes; all local patches still apply.
+
 ## [0.14.1] - 2026-10-10
 
 ### Changed

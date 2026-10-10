@@ -43,6 +43,34 @@ npm install
 
 The `npm install` step compiles the native module. On macOS it automatically enables Metal; on systems with CUDA or Vulkan SDKs installed, those backends are enabled too.
 
+### Prebuilt platforms & GPU acceleration
+
+Installing `stable-diffusion-cpp-node-api` from npm uses a prebuilt binary when one exists for your platform:
+
+| Package | GPU |
+| --- | --- |
+| `darwin-arm64`, `darwin-x64` | Metal (built in) |
+| `linux-x64`, `linux-arm64` | Vulkan — NVIDIA / AMD / Intel via the system Vulkan loader |
+| `win32-x64` | Vulkan — NVIDIA / AMD / Intel via the system Vulkan loader |
+
+The Linux and Windows prebuilds ship ggml backends as runtime-loadable
+libraries: the best CPU variant for your machine (SSE4.2 → AVX-512 / AMX on
+x86-64, armv8/armv9 on ARM) is picked automatically, and the Vulkan backend
+is used when a Vulkan loader + driver are present (`vulkan-1.dll` ships with
+GPU drivers on Windows; on Linux install your distro's `libvulkan1`/`vulkan-loader`
+package). Machines without Vulkan silently fall back to CPU — nothing to
+configure, nothing extra to install. `GGML_BACKEND_PATH` can point at an
+out-of-tree backend library to load additionally.
+
+Electron note: the platform package must stay together on disk —
+electron-builder's automatic native-module unpacking handles this; if you
+configure `asarUnpack` manually, unpack the whole
+`node_modules/@stable-diffusion-cpp-node-api/**` directory, not just the
+`.node` file.
+
+CUDA is not prebuilt (it would add hundreds of MB per install for one GPU
+vendor); build from source with the CUDA Toolkit installed if you want it.
+
 ### Manual build
 
 ```bash
@@ -51,6 +79,19 @@ npm run build:debug    # Debug build
 npm run rebuild        # Clean + rebuild
 npm run clean          # Remove build artifacts
 ```
+
+The configuration the Linux/Windows prebuilds ship with (runtime-loadable
+CPU-variant backends + Vulkan) is enabled with environment variables
+(cmake-js does not reliably forward `-D` flags):
+
+```bash
+# Vulkan SDK (glslc + headers) required at build time only
+SD_NODE_BACKEND_DL=1 SD_NODE_VULKAN=1 npm run rebuild
+```
+
+`SD_NODE_BACKEND_DL=1` places the shared ggml libraries and the backend
+modules next to `node_stable_diffusion.node` in `build/Release/` — keep them
+together if you relocate the addon.
 
 ## Quick start
 
